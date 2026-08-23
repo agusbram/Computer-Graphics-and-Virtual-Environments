@@ -1,0 +1,84 @@
+# ------------------------------------------------------------------------------
+# Makefile.master — lógica de compilación genérica
+#
+# No contiene NADA específico de un proyecto. Las fuentes, includes, librerías
+# de link y el nombre del ejecutable se declaran en el Makefile del proyecto,
+# que incluye este archivo al final.
+#
+# Variables que sobrescribe el proyecto:
+#   PROJECT_NAME   nombre del ejecutable
+#   MAIN_CXX       nombre (sin extensión) del archivo con main()
+#   BIN_DIR        dir para escribir el ejecutable
+#   SRC_DIR        dir(es) con los objetos "de entrada" (main, glad). NO se
+#                  recolectan por wildcard: se compilan solo los nombrados.
+#   LIB_DIRS       dir(es) cuyas fuentes .c/.cpp se recolectan automáticamente.
+#                  DEBEN ser disjuntos de SRC_DIR (si no, se linkea dos veces).
+#   INC_DIRS       dir(es) de headers (-I)
+#   EXTRA_OBJ      objetos extra nombrados a linkear (ej. glad-460.o)
+#   PROJECT_LDLIBS librerías de link específicas del proyecto (ej. -lglfw -lGL)
+#   USERCPPFLAGS   flags de compilación (def. -O2 -Wall; usar -g -Wall p/ debug)
+#
+# ------------------------------------------------------------------------------
+
+# --- Defaults (el proyecto los sobrescribe) -----------------------------------
+PROJECT_NAME   ?= App
+MAIN_CXX       ?= main
+BIN_DIR	       ?= bin
+BUILD_DIR      ?= build
+SRC_DIR        ?= .
+INC_DIRS       ?=
+LIB_DIRS       ?=
+EXTRA_OBJ      ?=
+USERCPPFLAGS   ?= -O2 -Wall
+PROJECT_LDLIBS ?=
+
+# --- Flags de compilación -----------------------------------------------------
+CXXFLAGS  = -std=c++17
+INC_FLAGS = $(addprefix -I,$(INC_DIRS))
+CPPFLAGS  = $(USERCPPFLAGS) $(INC_FLAGS)
+
+# --- Librerías de link: base universal + las del proyecto ---------------------
+BASE_LDLIBS = -lm
+LINK_LIBS   = $(PROJECT_LDLIBS) $(BASE_LDLIBS) $(LDLIBS)
+
+# --- Descubrimiento de fuentes ------------------------------------------------
+# NOTA: wildcard NO recursivo. Listar cada subcarpeta con fuentes en LIB_DIRS.
+VPATH = $(LIB_DIRS) $(SRC_DIR)
+
+LIB_C_SRC   = $(foreach d,$(LIB_DIRS),$(wildcard $(d)/*.c))
+LIB_CXX_SRC = $(foreach d,$(LIB_DIRS),$(wildcard $(d)/*.cpp))
+
+LIB_OBJ = \
+    $(patsubst %.c,$(BUILD_DIR)/%.o,$(notdir $(LIB_C_SRC))) \
+    $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(notdir $(LIB_CXX_SRC)))
+
+# Objetos de entrada: main + extras explícitos (ej. glad)
+OBJ_LIST = $(BUILD_DIR)/$(MAIN_CXX).o $(addprefix $(BUILD_DIR)/,$(EXTRA_OBJ))
+
+# --- Reglas -------------------------------------------------------------------
+.PHONY: build run clean
+
+build: $(BIN_DIR)/$(PROJECT_NAME)
+
+# Se linkea con $(CXX) (programa C++). Objetos antes que librerías.
+$(BIN_DIR)/$(PROJECT_NAME): $(LIB_OBJ) $(OBJ_LIST)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(LIB_OBJ) $(OBJ_LIST) -o $@ -L$(BUILD_DIR) $(LINK_LIBS)
+
+$(BUILD_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) -c $(CFLAGS) $(CPPFLAGS) $< -o $@
+
+$(BUILD_DIR)/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) -c $(CXXFLAGS) $(CPPFLAGS) $< -o $@
+
+run: build
+	@echo "Running $(BUILD_DIR)/$(PROJECT_NAME)"
+	@./$(BIN_DIR)/$(PROJECT_NAME)
+
+clean:
+	rm -f $(BUILD_DIR)/*.o $(BIN_DIR)/$(PROJECT_NAME)
+
+# Utilidad de depuración:  make print-LIB_CXX_SRC
+print-%: ; @echo $* = $($*)
