@@ -1,4 +1,4 @@
-# CGyAV — Proyecto OpenGL (template + Prácticos 01 y 02)
+# CGyAV — Proyecto OpenGL (template + Prácticos 01, 02 y 03)
 
 Proyecto base de **Computación gráfica y ambientes virtuales (0494)** — CRUC-IUA.
 Template de aplicación OpenGL moderna (core profile 4.6) con GLFW + GLAD sobre el
@@ -9,6 +9,10 @@ que se desarrollan los prácticos del proyecto integrador
 - **Práctico 02** — *Del triángulo a la malla*: cubo indexado (24 vértices / 36
   índices, un color por cara) dibujado con los módulos `Mesh`, `Shader` y
   `primitives`; el `main.cpp` queda sin recursos propios de OpenGL.
+- **Práctico 03** — *Primitivas paramétricas y matriz de modelo*: tupla con
+  normal y UV (sale el color), `cylinder()`/`cone()` generados por parámetros,
+  uniform en `Shader` (color y matriz de modelo) y una escena con cuatro
+  piezas.
 
 ---
 
@@ -17,13 +21,14 @@ que se desarrollan los prácticos del proyecto integrador
 - Compilador C++ con soporte **C++17** (`g++`)
 - `make`
 - Librerías de desarrollo: **GLFW**, GL, X11 (`libglfw-dev`, etc. en Linux)
+- **glm** (`libglm-dev`; solo encabezados) — tipos y operaciones de álgebra lineal
 - GLAD está incluido en `third_party/glad` (no hace falta instalarlo)
 
 ## Compilación y ejecución
 
 ```bash
 make            # compila en build/ y genera bin/ogl-app
-./bin/ogl-app   # abre la ventana con el cubo indexado (3 caras de 3 colores)
+./bin/ogl-app   # escena con cubo, cilindro, esfera y cono (distinto lugar/tamaño/color)
 ```
 
 - `ESC` cierra la aplicación.
@@ -39,23 +44,25 @@ make            # compila en build/ y genera bin/ogl-app
 ├── assets/
 │   └── shaders/            # fuentes GLSL externos (solid.vs / solid.fs, triangle.*)
 ├── src/
-│   ├── main.cpp            # app: ventana GLFW + cubo (sin recursos propios de GL)
+│   ├── main.cpp            # app: escena cubo+cilindro+esfera+cono (sin recursos propios de GL)
 │   └── core/
-│       ├── MeshData.h          # tupla Vertex + malla plana (sin OpenGL)
-│       ├── Mesh.h/.cpp         # dueño del VAO/VBO/EBO (DSA 4.5, load/clear)
-│       ├── Shader.h/.cpp       # dueño del programa linkeado (compile_from_source)
-│       ├── Primitives.h/.cpp   # generadores de mallas: cube() (24/36, color por cara)
+│       ├── MeshData.h          # tupla Vertex {position, normal, tex_coords} (glm)
+│       ├── Mesh.h/.cpp         # dueño del VAO/VBO/EBO (DSA 4.5, 3 atributos)
+│       ├── Shader.h/.cpp       # dueño del programa linkeado + uniforms (DSA)
+│       ├── Primitives.h/.cpp   # cube(), cylinder(), cone() y sphere() (opcional)
 │       ├── ResourceManager.h   # cache de recursos (C++ puro, sin OpenGL)
 │       └── ResourceManager.cpp
 ├── tests/
-│   └── main_test_rm.cpp    # test standalone del ResourceManager
+│   ├── main_test_rm.cpp        # test standalone del ResourceManager
+│   └── main_test_primitives.cpp# verificación de winding por producto vectorial
 ├── third_party/glad/       # cargador de funciones OpenGL
 ├── Makefile                # configuración del proyecto (usa Makefile.master)
 ├── Clinica-Practico-01.md          # apuntes: clínica de debugging (3 roturas)
 ├── ResourceManager-Practico-01.md  # apuntes: diseño y funcionamiento del módulo
 ├── Practico02-Modulos.md          # apuntes: decisiones y cómo se sabe que está bien
 ├── Practico02-Consultas.md        # FAQ: offsetof, primitives, depth test, clínica, etc.
-└── Practico02-Portabilidad.md     # por qué el diseño permite agregar figuras nuevas
+├── Practico02-Portabilidad.md     # por qué el diseño permite agregar figuras nuevas
+└── Practico03-Decisiones.md       # apuntes: tupla, paramétricas, uniforms, matriz de modelo
 ```
 
 ## Test del ResourceManager
@@ -105,8 +112,40 @@ Cada interfaz documenta sus decisiones en el header (copia borrada, mover deja e
 origen en cero, `clear()` repetible, `offsetof` para los atributos, cubo centrado
 con colores fijos, etc.). Ver `Practico02-Modulos.md`.
 
+## Primitivas paramétricas y matriz de modelo (Práctico 03)
+
+Cambios sobre los módulos del Práctico 02:
+
+| Pieza | Cambio |
+|---|---|
+| `MeshData.h` | `Vertex` pasa a `{position, normal, tex_coords}` (glm); **sale el color** |
+| `Mesh` | `load()` arma **3 atributos** (0=posición, 1=normal, 2=UV) con `offsetof` |
+| `primitives` | se agregan `cylinder(radio, largo, gajos, anillos)`, `cone(radio, conicidad, gajos, anillos)` y `sphere(radio, gajos, anillos)` (opcional de la guía) — generación paramétrica, eje Y, ángulos en radianes, N+1 vértices por anillo, solo lateral |
+| `Shader` | se agregan `set_uniform` (`mat4`/`vec3`/`float`) con DSA y `loc()` para cachear la ubicación |
+| shaders | 3 atributos de entrada + uniforms `uModel`, `uAjuste`, `uColor` |
+| `main.cpp` | escena con 4 piezas, cada una con su matriz de modelo (glm) y su color (uniform) |
+
+El color deja de ser un dato por vértice y viaja como **uniform** (un valor por
+objeto); la normal y las UV se calculan y guardan aunque todavía no se usen
+(las consumen la iluminación y las texturas, más adelante). Ver
+`Practico03-Decisiones.md`.
+
+### Test de las primitivas
+
+Verificación por cálculo del orden de los índices (sin dibujar nada): el
+producto vectorial `(B−A)×(C−A)` de cada triángulo debe apuntar al mismo lado
+que la normal de sus vértices.
+
+```bash
+g++ -std=c++17 -Wall -Wextra -I./src src/core/Primitives.cpp \
+    tests/main_test_primitives.cpp -o build/test_primitives && ./build/test_primitives
+```
+
 ## Documentación de los prácticos
 
+- [`Practico03-Decisiones.md`](Practico03-Decisiones.md) — tupla nueva, primitivas
+  paramétricas (cilindro/cono/esfera), uniforms en `Shader`, matriz de modelo, decisiones
+  y cómo se verifica el orden de los índices.
 - [`Practico02-Modulos.md`](Practico02-Modulos.md) — decisiones de los módulos,
   cómo se sabe que el cubo está bien (consola 24/36, 3 caras visibles, sin
   `glDelete*` en main), y la clínica del práctico (romper el dibujo).
@@ -125,8 +164,8 @@ con colores fijos, etc.). Ver `Practico02-Modulos.md`.
 ## Contexto: roadmap del proyecto integrador
 
 Simulador de acrobacias aéreas (entrega final con defensa oral). Módulos por clase:
-shaders ✔ → primitivas 3D/Mesh/Shader → matrices → aeronave → cámara → FDM/game loop →
-terreno/HUD/texturas → circuito/maniobras/puntuación.
+shaders ✔ → primitivas 3D/Mesh/Shader ✔ → matrices ✔ (matriz de modelo) → aeronave →
+cámara → FDM/game loop → terreno/HUD/texturas → circuito/maniobras/puntuación.
 
 Requerimientos mínimos: escenario 3D, aeronave con actitud correcta, HUD (3
 instrumentos), control vía teclado/joystick con FDM provisto, 3 cámaras, circuito

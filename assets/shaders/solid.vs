@@ -1,31 +1,31 @@
 #version 460 core
 
 // -----------------------------------------------------------------------------
-// solid.vs — vertex shader del cubo (Práctico 02)
+// solid.vs — vertex shader (Práctico 03)
 //
-// Los atributos llegan desde el VAO que arma Mesh::load():
-//   location 0 -> aPos   (3 floats, posición)
-//   location 1 -> aColor (3 floats, color)
-// El color se pasa al fragment shader para que lo interpole el rasterizador.
+// El formato de vertice ahora tiene TRES atributos (armados por Mesh::load):
+//   location 0 -> aPos       (vec3, posicion)
+//   location 1 -> aNormal    (vec3, normal de la superficie)
+//   location 2 -> aTexCoords (vec2, coordenadas de textura; hoy sin usar)
+//
+// La normal se guarda y se copia a la siguiente etapa, pero todavia no la
+// consume nadie: la usa la iluminacion (Unidad IX). Las coordenadas de
+// textura se guardan pero tampoco se usan aun.
 // -----------------------------------------------------------------------------
 
 layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec3 aColor;
+layout (location = 1) in vec3 aNormal;
+layout (location = 2) in vec2 aTexCoords;
 
-out vec3 vColor;
+out vec3 vNormal;
 
-// Caja negra de hoy (vence 04-sep cuando se vean las transformaciones):
-// gira el cubo para que no quede "de frente" (sin esto se vería como un
-// cuadrado, porque la cámara mira en -z y el cubo está en el plano z = 0).
-// OJO: GLSL recibe la matriz por COLUMNAS: cada vec3 de esta lista es una
-// COLUMNA, no una fila. Lo escrito se copió de las filminas del práctico.
-const mat3 kRotacionFija = mat3(
-    vec3( 0.3686, -0.1454, -0.3119),   // columna 0
-    vec3( 0.0000,  0.5438, -0.2536),   // columna 1
-    vec3(-0.2581, -0.2077, -0.4454));  // columna 2
+uniform mat4 uModel;    // matriz de MODELO de la pieza actual (una por objeto)
+uniform mat4 uAjuste;   // caja negra: ajuste de vista y proyeccion (Unidad VII)
 
-void main() {
-    vec3 pos_girada = kRotacionFija * aPos;
-    gl_Position = vec4(pos_girada, 1.0);
-    vColor = aColor;
+void main()
+{
+    vNormal = aNormal;
+    // En uModel * vec4(aPos, 1.0) se aplica PRIMERO uModel (el vertice esta
+    // en coordenadas del modelo) y despues uAjuste (lo lleva a pantalla).
+    gl_Position = uAjuste * uModel * vec4(aPos, 1.0);
 }

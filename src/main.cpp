@@ -1,22 +1,29 @@
 // -----------------------------------------------------------------------------
-// main.cpp — Cubo indexado con módulos (Práctico 02: "Del triángulo a la malla")
+// main.cpp — Primitivas paramétricas y matriz de modelo (Práctico 03)
 //
-// Las cuatro etapas del triángulo, ahora repartidas en módulos:
-//   1. decidir los datos  -> primitives::cube()   (24 vértices, 36 índices)
-//   2. pasarlos a la GPU  -> Mesh::load()
-//   3. armar el programa  -> ResourceManager (lee el disco) + Shader (compila)
-//   4. dibujar            -> glDrawElements      (cada cuadro, dentro del loop)
+// Escena con TRES piezas (cubo, cilindro y cono), cada una en distinto lugar,
+// con distinto tamaño y distinto color. Las mallas se generan UNA sola vez;
+// lo que cambia entre piezas son los uniform: la matriz de modelo (uModel) y
+// el color (uColor).
 //
-// IMPORTANTE: este main.cpp NO posee recursos de OpenGL. No hay ni un solo
-// glDelete* (los destructores de Mesh y Shader liberan). Lo único que hace
-// main con la GPU, además del flujo normal de la ventana (clear/swap/vsync),
-// es dibujar dentro del loop: glBindVertexArray + glDrawElements.
+// Etapas del plasmado, ahora con los módulos:
+//   1. decidir los datos  -> primitives::cube/cylinder/cone  (generación paramétrica)
+//   2. pasarlos a la GPU  -> Mesh::load()   (VAO con 3 atributos)
+//   3. armar el programa  -> ResourceManager (lee) + Shader (compila + uniforms)
+//   4. dibujar            -> glDrawElements + set_uniform (dentro del loop)
+//
+// IMPORTANTE: este main.cpp NO posee recursos de OpenGL: no hay ni un solo
+// glDelete*. La caja negra que queda (uAjuste) corrige el aspect y niega Z;
+// el test de profundidad se mantiene como en el Práctico 02.
 // -----------------------------------------------------------------------------
 
 #include <cstdlib>          // EXIT_FAILURE, EXIT_SUCCESS
 #include <exception>        // std::exception
 #include <iostream>         // std::cout, std::endl, std::cerr
 #include <string>           // std::string
+
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <glad/gl.h>        // Funciones de OpenGL (cargador de extensiones)
 #include <GLFW/glfw3.h>     // Gestión de ventana y contexto OpenGL
@@ -28,7 +35,7 @@
 #include "core/Shader.h"
 
 // Datos básicos de la ventana
-static const char* kWindowTitle     = "Práctico 02 - Cubo indexado"; // Título
+static const char* kWindowTitle     = "Práctico 03 - Primitivas paramétricas"; // Título
 static constexpr int kWindowWidth   = 800;  // Ancho inicial en píxeles
 static constexpr int kWindowHeight  = 600;  // Alto inicial en píxeles
 static constexpr int kGLVerMajor    = 4;    // Versión mayor de OpenGL pedida
@@ -51,8 +58,6 @@ static void print_gl_version(void);
 
 int main()
 {
-    // Registrar el callback de errores ANTES de inicializar GLFW,
-    // así nos enteramos de cualquier fallo que ocurra en glfwInit()
     glfwSetErrorCallback(error_callback);
 
     // ------------------------------------------------------------------
@@ -65,8 +70,7 @@ int main()
     }
 
     // ------------------------------------------------------------------
-    // 2. Configurar el contexto de OpenGL (versión y perfil core) ANTES
-    //    de crear la ventana.
+    // 2. Configurar el contexto de OpenGL ANTES de crear la ventana.
     // ------------------------------------------------------------------
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, kGLVerMajor);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, kGLVerMinor);
@@ -99,21 +103,12 @@ int main()
 
     print_gl_version();
 
-    // ------------------------------------------------------------------
-    // 5. Registrar el callback de redimensionado de la ventana.
-    // ------------------------------------------------------------------
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-
-    // ------------------------------------------------------------------
-    // 6. Sincronización con el monitor (vsync).
-    // ------------------------------------------------------------------
     glfwSwapInterval(1);
 
     // ------------------------------------------------------------------
-    // Etapas del plasmado (1 a 4), con los módulos.
-    // Shader y Mesh viven dentro de un bloque { }: sus destructores tienen
-    // que correr con el contexto OpenGL todavía vivo (antes de cerrar GLFW),
-    // o liberar los recursos de la GPU puede ser un segfault al salir.
+    // Etapas del plasmado. Shader y Mesh viven dentro de un bloque { }
+    // para que sus destructores corran con el contexto OpenGL vivo.
     // ------------------------------------------------------------------
     try {
         // Etapa 3a: el ResourceManager lee los fuentes de disco.
@@ -121,17 +116,29 @@ int main()
         const ShaderSource& solid = resources.load_shader_source(
             "solid", "shaders/solid.vs", "shaders/solid.fs");
 
-        // Etapa 1: la malla se GENERA (ya no se escribe a mano en main).
-        // Consola: "se sabe que está bien" si dice 24 y 36.
-        const MeshData cube_data = primitives::cube();
-        std::cout << "Malla generada: " << cube_data.vertices.size()
-                  << " vértices y " << cube_data.indices.size()
+        // Etapa 1: las mallas se GENERAN una sola vez (fuera del loop).
+        // La cantidad de gajos es un parámetro: cambiarlo regenera la malla
+        // sin tocar una sola coordenada a mano.
+        const MeshData cube_data     = primitives::cube();
+        const MeshData cylinder_data = primitives::cylinder(0.26f, 0.95f, 20U);
+        const MeshData sphere_data   = primitives::sphere(0.26f, 20U, 12U);
+        const MeshData cone_data     = primitives::cone(0.26f, glm::radians(60.0f), 20U);
+
+        std::cout << "cubo     : " << cube_data.vertices.size()
+                  << " vértices, " << cube_data.indices.size()
                   << " índices (se esperan 24 y 36)" << std::endl;
+        std::cout << "cilindro : " << cylinder_data.vertices.size()
+                  << " vértices, " << cylinder_data.indices.size()
+                  << " índices (lateral 2(N+1) = 42 con N=20)" << std::endl;
+        std::cout << "esfera   : " << sphere_data.vertices.size()
+                  << " vértices, " << sphere_data.indices.size()
+                  << " índices (anillos x 2(N+1) + polares)" << std::endl;
+        std::cout << "cono     : " << cone_data.vertices.size()
+                  << " vértices, " << cone_data.indices.size()
+                  << " índices (N+1 del anillo + ápice)" << std::endl;
 
         {
-            // Etapa 3b: compilar y linkear. Si el shader está roto, se imprime
-            // el log del driver y compile_from_source devuelve false; el
-            // programa queda vacío y no se dibuja nada (falla 2 de la clínica).
+            // Etapa 3b: compilar y linkear (falla nunca silenciosa).
             Shader shader;
             if (!shader.compile_from_source(solid.vs, solid.fs)) {
                 std::cout << "El programa de shaders quedó vacío; saliendo sin "
@@ -141,13 +148,70 @@ int main()
                 return EXIT_FAILURE;
             }
 
-            // Etapa 2: subir la malla a la GPU y armar el VAO.
+            // Ubicaciones de los uniform cacheadas UNA vez: dentro del loop
+            // se setea con el entero y no se busca el string en cada cuadro.
+            const int loc_model  = shader.loc("uModel");
+            const int loc_color  = shader.loc("uColor");
+            const int loc_ajuste = shader.loc("uAjuste");
+
+            // Etapa 2: subir las mallas a la GPU (cada Mesh posee su VAO/VBO/EBO).
             Mesh cube;
             cube.load(cube_data);
+            Mesh cylinder;
+            cylinder.load(cylinder_data);
+            Mesh sphere;
+            sphere.load(sphere_data);
+            Mesh cone;
+            cone.load(cone_data);
 
-            // Caja negra de hoy: test de profundidad. Determina qué triángulo
-            // se ve cuando varios compiten por el mismo píxel (el más cercano).
-            glEnable(GL_DEPTH_TEST);
+            // Caja negra de hoy (vista/proyección, Unidad VII): corrige la
+            // relación de aspecto de la ventana y niega el eje Z. Es una
+            // matriz CONSTANTE para toda la escena.
+            const glm::mat4 ajuste = glm::scale(
+                glm::mat4(1.0f),
+                glm::vec3(static_cast<float>(kWindowHeight) / kWindowWidth,
+                          1.0f, -1.0f));
+
+            // Inclinación común de la vista de la escena. Como la cámara mira
+            // de frente (en -z) y uAjuste todavia NO tiene perspectiva (Unidad
+            // VII), una pieza sin rotar queda "de frente" y, pintada con un
+            // color plano, se ve como una figura chata: el cubo como un
+            // cuadrado, el cilindro como un rectángulo y el cono como un
+            // triángulo. En el Práctico 02 esa rotación estaba adentro de la
+            // matriz "caja negra"; a partir de ahora se arma con la MATRIZ DE
+            // MODELO, que es exactamente para eso.
+            // Se aplica PRIMERO Ry(35) y después Rx(-25) (lo de más a la
+            // derecha se aplica primero): una vista "de esquina".
+            const glm::mat4 inclinacion =
+                glm::rotate(glm::rotate(glm::mat4(1.0f),
+                                        glm::radians(-25.0f),
+                                        glm::vec3(1.0f, 0.0f, 0.0f)),
+                            glm::radians(35.0f),
+                            glm::vec3(0.0f, 1.0f, 0.0f));
+
+            // Posiciones x (layout: cubo, cilindro, esfera, cono, de izquierda a
+            // derecha: -0.92 / -0.32 / 0.26 / 0.82). Elegidas con un
+            // chequeador de bounding-box en NDC sobre los vértices REALES
+            // (con inclinación y uAjuste): todas quedan dentro de [-1,1] y
+            // con un hueco claro entre piezas (cubo-cilindro 0.06, etc.).
+            glm::mat4 model_cube = glm::translate(glm::mat4(1.0f),
+                                                  glm::vec3(-0.92f, 0.0f, 0.0f));
+            model_cube = model_cube * inclinacion;
+            model_cube = glm::scale(model_cube, glm::vec3(0.40f));
+
+            glm::mat4 model_cylinder = glm::translate(glm::mat4(1.0f),
+                                                      glm::vec3(-0.32f, 0.0f, 0.0f));
+            model_cylinder = model_cylinder * inclinacion;
+
+            glm::mat4 model_sphere = glm::translate(glm::mat4(1.0f),
+                                                    glm::vec3(0.26f, 0.0f, 0.0f));
+            model_sphere = model_sphere * inclinacion;
+
+            glm::mat4 model_cone = glm::translate(glm::mat4(1.0f),
+                                                  glm::vec3(0.82f, 0.0f, 0.0f));
+            model_cone = model_cone * inclinacion;
+
+            glEnable(GL_DEPTH_TEST);   // una vez, antes del loop (caja negra)
 
             // ------------------------------------------------------------------
             // Bucle principal de renderizado.
@@ -155,23 +219,44 @@ int main()
             while (!glfwWindowShouldClose(window)) {
                 processInput(window);
 
-                // Limpiar COLOR y PROFUNDIDAD en cada cuadro: sin esto las
-                // caras de cuadros anteriores "ganarían" el test de profundidad.
                 glClearColor(51.0f / 256.0f, 55.0f / 256.0f, 76.0f / 256.0f, 1.0f);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-                // Etapa 4: dibujar con índices. count() = cantidad de INDICES
-                // (36); el VAO ya sabe dónde está el buffer de índices.
                 shader.use();
+                shader.set_uniform(loc_ajuste, ajuste);
+
+                // Etapa 4: dibujar. Cada pieza: cambiar uColor + uModel y
+                // dibujar la MISMA malla con distinta transformación.
+                shader.set_uniform(loc_color, glm::vec3(1.0f, 0.25f, 0.25f));
+                shader.set_uniform(loc_model, model_cube);
                 glBindVertexArray(cube.vao());
                 glDrawElements(GL_TRIANGLES, cube.count(), GL_UNSIGNED_INT,
                                nullptr);
+
+                shader.set_uniform(loc_color, glm::vec3(0.25f, 1.0f, 0.35f));
+                shader.set_uniform(loc_model, model_cylinder);
+                glBindVertexArray(cylinder.vao());
+                glDrawElements(GL_TRIANGLES, cylinder.count(), GL_UNSIGNED_INT,
+                               nullptr);
+
+                shader.set_uniform(loc_color, glm::vec3(1.0f, 0.85f, 0.25f));
+                shader.set_uniform(loc_model, model_sphere);
+                glBindVertexArray(sphere.vao());
+                glDrawElements(GL_TRIANGLES, sphere.count(), GL_UNSIGNED_INT,
+                               nullptr);
+
+                shader.set_uniform(loc_color, glm::vec3(0.35f, 0.55f, 1.0f));
+                shader.set_uniform(loc_model, model_cone);
+                glBindVertexArray(cone.vao());
+                glDrawElements(GL_TRIANGLES, cone.count(), GL_UNSIGNED_INT,
+                               nullptr);
+
                 glBindVertexArray(0);   // desactivar, para no estorbar
 
                 glfwSwapBuffers(window);
                 glfwPollEvents();
             }
-        }   // <-- acá se destruyen shader y cube: destructores con contexto vivo
+        }   // <-- acá se destruyen shader y meshes: destructores con contexto vivo
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         glfwDestroyWindow(window);
@@ -187,9 +272,6 @@ int main()
 
 // -----------------------------------------------------------------------------
 // error_callback
-// Callback que GLFW invoca cuando ocurre un error interno.
-// Guarda el código y la descripción del error en variables globales para
-// poder mostrarlos después.
 // -----------------------------------------------------------------------------
 void error_callback(int error, const char *description){
     glfw_error_code = error;
@@ -198,9 +280,6 @@ void error_callback(int error, const char *description){
 
 // -----------------------------------------------------------------------------
 // framebuffer_size_callback
-// Callback que GLFW invoca cuando el usuario redimensiona la ventana.
-// Ajusta el viewport (la región donde OpenGL dibuja) al nuevo tamaño,
-// para que la imagen no quede deformada ni cortada.
 // -----------------------------------------------------------------------------
 void framebuffer_size_callback([[maybe_unused]]  GLFWwindow* window,
                                int width, int height){
@@ -209,9 +288,6 @@ void framebuffer_size_callback([[maybe_unused]]  GLFWwindow* window,
 
 // -----------------------------------------------------------------------------
 // processInput
-// Consulta el estado del teclado en cada frame.
-// Si se presionó ESC, pedimos que la ventana se cierre (el bucle principal
-// detectará glfwWindowShouldClose y terminará).
 // -----------------------------------------------------------------------------
 void processInput(GLFWwindow *window){
     if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS){
@@ -221,9 +297,6 @@ void processInput(GLFWwindow *window){
 
 // -----------------------------------------------------------------------------
 // print_gl_version
-// Imprime por consola la información del driver OpenGL del sistema:
-// fabricante, tarjeta gráfica, versión de OpenGL y versión de GLSL.
-// Útil para depurar y saber qué características están disponibles.
 // -----------------------------------------------------------------------------
 void print_gl_version(void){
     std::cout << " OpenGL Vendor: "

@@ -52,7 +52,8 @@ void Mesh::load(const MeshData& data)
     glCreateVertexArrays(1, &vao_);
 
     // VBO: UN solo buffer con la tupla completa entrelazada (posicion +
-    // color por vertice, en memorama de Vertex). El stride es sizeof(Vertex).
+    // normal + coordenadas de textura por vertice, en memoria de Vertex).
+    // El stride es sizeof(Vertex).
     glCreateBuffers(1, &vbo_);
     glNamedBufferData(vbo_,
                       static_cast<GLsizeiptr>(data.vertices.size() * sizeof(Vertex)),
@@ -60,17 +61,29 @@ void Mesh::load(const MeshData& data)
     glVertexArrayVertexBuffer(vao_, 0, vbo_, 0,
                               static_cast<GLsizei>(sizeof(Vertex)));
 
-    // Atributo 0 -> location = 0 del vertex shader (aPos): 3 floats.
+    // Tres atributos sobre el MISMO buffer entrelazado. Las ubicaciones
+    // (0, 1, 2) deben coincidir con los layout(location = ...) del vertex
+    // shader. Los desplazamientos se calculan con offsetof: al cambiar la
+    // tupla en el Práctico 03 solo se toco ESTE archivo (y el shader), tal
+    // como se habia previsto en el Práctico 02.
+
+    // Atributo 0 -> location = 0 (aPos): 3 floats de posicion.
     glVertexArrayAttribFormat(vao_, 0, 3, GL_FLOAT, GL_FALSE,
-                              static_cast<GLuint>(offsetof(Vertex, px)));
+                              static_cast<GLuint>(offsetof(Vertex, position)));
     glVertexArrayAttribBinding(vao_, 0, 0);
     glEnableVertexArrayAttrib(vao_, 0);
 
-    // Atributo 1 -> location = 1 del vertex shader (aColor): 3 floats.
+    // Atributo 1 -> location = 1 (aNormal): 3 floats de normal.
     glVertexArrayAttribFormat(vao_, 1, 3, GL_FLOAT, GL_FALSE,
-                              static_cast<GLuint>(offsetof(Vertex, r)));
+                              static_cast<GLuint>(offsetof(Vertex, normal)));
     glVertexArrayAttribBinding(vao_, 1, 0);
     glEnableVertexArrayAttrib(vao_, 1);
+
+    // Atributo 2 -> location = 2 (aTexCoords): 2 floats de (u, v).
+    glVertexArrayAttribFormat(vao_, 2, 2, GL_FLOAT, GL_FALSE,
+                              static_cast<GLuint>(offsetof(Vertex, tex_coords)));
+    glVertexArrayAttribBinding(vao_, 2, 0);
+    glEnableVertexArrayAttrib(vao_, 2);
 
     // EBO (opcional): lista de indices de los triangulos, a la ranura
     // dedicada del VAO.

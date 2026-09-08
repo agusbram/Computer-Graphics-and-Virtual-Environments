@@ -121,6 +121,50 @@ void Shader::use(void) const
     }
 }
 
+int Shader::loc(const std::string& nombre) const
+{
+    const int ubicacion = glGetUniformLocation(id_, nombre.c_str());
+    if (ubicacion == -1) {
+        // Uniform inexistente o eliminado por el compilador de GLSL por no
+        // usarse: avisar ayuda a cazar el nombre mal escrito. Pasar -1 a
+        // glProgramUniform* NO es un error (se ignora en silencio).
+        std::cerr << "[Shader] aviso: el uniform '" << nombre
+                  << "' no existe o fue eliminado por no usarse (ubicacion -1)."
+                  << std::endl;
+    }
+    return ubicacion;
+}
+
+void Shader::set_uniform(int ubicacion, const glm::mat4& m) const
+{
+    glProgramUniformMatrix4fv(id_, ubicacion, 1, GL_FALSE, &m[0][0]);
+}
+
+void Shader::set_uniform(int ubicacion, const glm::vec3& v) const
+{
+    glProgramUniform3f(id_, ubicacion, v.x, v.y, v.z);
+}
+
+void Shader::set_uniform(int ubicacion, float valor) const
+{
+    glProgramUniform1f(id_, ubicacion, valor);
+}
+
+void Shader::set_uniform(const std::string& nombre, const glm::mat4& m) const
+{
+    set_uniform(loc(nombre), m);
+}
+
+void Shader::set_uniform(const std::string& nombre, const glm::vec3& v) const
+{
+    set_uniform(loc(nombre), v);
+}
+
+void Shader::set_uniform(const std::string& nombre, float valor) const
+{
+    set_uniform(loc(nombre), valor);
+}
+
 void Shader::clear(void)
 {
     // glDeleteProgram(0) no hace nada: clear() se puede llamar dos veces.
