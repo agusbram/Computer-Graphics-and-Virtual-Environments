@@ -1,26 +1,36 @@
 // -----------------------------------------------------------------------------
-// main.cpp — Primitivas paramétricas y matriz de modelo (Práctico 03)
+// main.cpp — Armado de la aeronave (Práctico 04)
 //
-// Escena con TRES piezas (cubo, cilindro y cono), cada una en distinto lugar,
-// con distinto tamaño y distinto color. Las mallas se generan UNA sola vez;
-// lo que cambia entre piezas son los uniform: la matriz de modelo (uModel) y
-// el color (uColor).
+// Escena con UN solo modelo: la aeronave, compuesta por varias primitivas
+// del Práctico 03 (nariz, fuselaje, cola, alas y empenajes). Las mallas y
+// las matrices LOCALES se arman una sola vez en Aircraft::init(); por cuadro
+// solo se recalcula la POSE (posición + orientación del avión) y se pide la
+// lista de piezas ya transformadas con collect().
 //
-// Etapas del plasmado, ahora con los módulos:
-//   1. decidir los datos  -> primitives::cube/cylinder/cone  (generación paramétrica)
-//   2. pasarlos a la GPU  -> Mesh::load()   (VAO con 3 atributos)
+// La verificación del práctico: un cabeceo oscilante (la nariz sube y baja)
+// que se aplica a TODAS las piezas a la vez, girando alrededor del punto de
+// referencia (centro de gravedad) y no de un punto arbitrario.
+//
+// Etapas del plasmado:
+//   1. decidir los datos  -> Aircraft::init()      (primitivas + matrices locales)
+//   2. pasarlos a la GPU  -> Mesh::load()          (dentro de init())
 //   3. armar el programa  -> ResourceManager (lee) + Shader (compila + uniforms)
-//   4. dibujar            -> glDrawElements + set_uniform (dentro del loop)
+//   4. dibujar            -> collect() + glDrawElements + set_uniform
 //
-// IMPORTANTE: este main.cpp NO posee recursos de OpenGL: no hay ni un solo
-// glDelete*. La caja negra que queda (uAjuste) corrige el aspect y niega Z;
-// el test de profundidad se mantiene como en el Práctico 02.
+// La caja negra que queda (uAjuste) corrige el aspect y niega Z; la rotación
+// de vista es la misma idea del Práctico 03 (mirar el modelo "de esquina"),
+// pero ahora vive en main y NO se mezcla con las matrices de modelo de las
+// piezas: uModel = vista * (pose * local). La matriz de vista real llega en
+// la Unidad VII.
 // -----------------------------------------------------------------------------
 
+#include <cmath>            // std::sin
 #include <cstdlib>          // EXIT_FAILURE, EXIT_SUCCESS
 #include <exception>        // std::exception
 #include <iostream>         // std::cout, std::endl, std::cerr
+#include <set>              // std::set (para contar mallas distintas)
 #include <string>           // std::string
+#include <vector>           // std::vector
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -28,14 +38,12 @@
 #include <glad/gl.h>        // Funciones de OpenGL (cargador de extensiones)
 #include <GLFW/glfw3.h>     // Gestión de ventana y contexto OpenGL
 
-#include "core/Mesh.h"
-#include "core/MeshData.h"
-#include "core/Primitives.h"
+#include "core/Aircraft.h"
 #include "core/ResourceManager.h"
 #include "core/Shader.h"
 
 // Datos básicos de la ventana
-static const char* kWindowTitle     = "Práctico 03 - Primitivas paramétricas"; // Título
+static const char* kWindowTitle     = "Práctico 04 - Armado de la aeronave"; // Título
 static constexpr int kWindowWidth   = 800;  // Ancho inicial en píxeles
 static constexpr int kWindowHeight  = 600;  // Alto inicial en píxeles
 static constexpr int kGLVerMajor    = 4;    // Versión mayor de OpenGL pedida
@@ -107,7 +115,7 @@ int main()
     glfwSwapInterval(1);
 
     // ------------------------------------------------------------------
-    // Etapas del plasmado. Shader y Mesh viven dentro de un bloque { }
+    // Etapas del plasmado. Shader y Aircraft viven dentro de un bloque { }
     // para que sus destructores corran con el contexto OpenGL vivo.
     // ------------------------------------------------------------------
     try {
@@ -115,27 +123,6 @@ int main()
         ResourceManager resources(kAssetsRoot);
         const ShaderSource& solid = resources.load_shader_source(
             "solid", "shaders/solid.vs", "shaders/solid.fs");
-
-        // Etapa 1: las mallas se GENERAN una sola vez (fuera del loop).
-        // La cantidad de gajos es un parámetro: cambiarlo regenera la malla
-        // sin tocar una sola coordenada a mano.
-        const MeshData cube_data     = primitives::cube();
-        const MeshData cylinder_data = primitives::cylinder(0.26f, 0.95f, 20U);
-        const MeshData sphere_data   = primitives::sphere(0.26f, 20U, 12U);
-        const MeshData cone_data     = primitives::cone(0.26f, glm::radians(60.0f), 20U);
-
-        std::cout << "cubo     : " << cube_data.vertices.size()
-                  << " vértices, " << cube_data.indices.size()
-                  << " índices (se esperan 24 y 36)" << std::endl;
-        std::cout << "cilindro : " << cylinder_data.vertices.size()
-                  << " vértices, " << cylinder_data.indices.size()
-                  << " índices (lateral 2(N+1) = 42 con N=20)" << std::endl;
-        std::cout << "esfera   : " << sphere_data.vertices.size()
-                  << " vértices, " << sphere_data.indices.size()
-                  << " índices (anillos x 2(N+1) + polares)" << std::endl;
-        std::cout << "cono     : " << cone_data.vertices.size()
-                  << " vértices, " << cone_data.indices.size()
-                  << " índices (N+1 del anillo + ápice)" << std::endl;
 
         {
             // Etapa 3b: compilar y linkear (falla nunca silenciosa).
@@ -154,15 +141,31 @@ int main()
             const int loc_color  = shader.loc("uColor");
             const int loc_ajuste = shader.loc("uAjuste");
 
-            // Etapa 2: subir las mallas a la GPU (cada Mesh posee su VAO/VBO/EBO).
-            Mesh cube;
-            cube.load(cube_data);
-            Mesh cylinder;
-            cylinder.load(cylinder_data);
-            Mesh sphere;
-            sphere.load(sphere_data);
-            Mesh cone;
-            cone.load(cone_data);
+            // Etapas 1 y 2: la aeronave arma sus mallas y matrices locales
+            // UNA sola vez (Aircraft::init no se vuelve a llamar).
+            Aircraft avion;
+            avion.init();
+
+            // "Contar" (actividad aúlica): cuántas mallas distintas hay y
+            // cuántas matrices de modelo se calculan por cuadro. Se cuenta
+            // con la propia lista de RenderItems: piezas vs mallas distintas.
+            {
+                avion.update(glm::vec3(0.0f), glm::vec3(0.0f));
+                std::vector<RenderItem> conteo;
+                avion.collect(conteo);
+
+                std::set<const Mesh*> mallas;
+                for (const RenderItem& item : conteo) {
+                    mallas.insert(item.mesh);
+                }
+                std::cout << "aeronave : " << conteo.size()
+                          << " piezas con " << mallas.size()
+                          << " mallas distintas" << std::endl;
+                std::cout << "  (las cuatro placas -alas y empenajes- "
+                             "comparten la malla del cubo;" << std::endl;
+                std::cout << "   las matrices de modelo por cuadro son "
+                          << conteo.size() << ", una por pieza)" << std::endl;
+            }
 
             // Caja negra de hoy (vista/proyección, Unidad VII): corrige la
             // relación de aspecto de la ventana y niega el eje Z. Es una
@@ -172,44 +175,23 @@ int main()
                 glm::vec3(static_cast<float>(kWindowHeight) / kWindowWidth,
                           1.0f, -1.0f));
 
-            // Inclinación común de la vista de la escena. Como la cámara mira
-            // de frente (en -z) y uAjuste todavia NO tiene perspectiva (Unidad
-            // VII), una pieza sin rotar queda "de frente" y, pintada con un
-            // color plano, se ve como una figura chata: el cubo como un
-            // cuadrado, el cilindro como un rectángulo y el cono como un
-            // triángulo. En el Práctico 02 esa rotación estaba adentro de la
-            // matriz "caja negra"; a partir de ahora se arma con la MATRIZ DE
-            // MODELO, que es exactamente para eso.
-            // Se aplica PRIMERO Ry(35) y después Rx(-25) (lo de más a la
-            // derecha se aplica primero): una vista "de esquina".
-            const glm::mat4 inclinacion =
+            // Rotación de vista: mirar el modelo "de esquina" para que se
+            // vea el volumen (la cámara frontal + color plano dejan todo
+            // chato). Se compone Ry(25) · Rx(-65) (lo escrito más a la
+            // derecha se aplica primero: primero se inclina -65° alrededor de
+            // X y después se rota 25° alrededor de Y). Deja el fuselaje
+            // horizontal en pantalla (el eje X del modelo apunta a la derecha),
+            // el "arriba" del avión casi vertical y las alas diagonales hacia
+            // adentro: una vista 3/4 en la que el cabeceo de la verificación
+            // se ve bien. Vive separada de las matrices de modelo de las
+            // piezas: la pose y las locales describen el MODELO; la vista
+            // describe cómo se lo mira. uModel = vista * item.model.
+            const glm::mat4 vista =
                 glm::rotate(glm::rotate(glm::mat4(1.0f),
-                                        glm::radians(-25.0f),
-                                        glm::vec3(1.0f, 0.0f, 0.0f)),
-                            glm::radians(35.0f),
-                            glm::vec3(0.0f, 1.0f, 0.0f));
-
-            // Posiciones x (layout: cubo, cilindro, esfera, cono, de izquierda a
-            // derecha: -0.92 / -0.32 / 0.26 / 0.82). Elegidas con un
-            // chequeador de bounding-box en NDC sobre los vértices REALES
-            // (con inclinación y uAjuste): todas quedan dentro de [-1,1] y
-            // con un hueco claro entre piezas (cubo-cilindro 0.06, etc.).
-            glm::mat4 model_cube = glm::translate(glm::mat4(1.0f),
-                                                  glm::vec3(-0.92f, 0.0f, 0.0f));
-            model_cube = model_cube * inclinacion;
-            model_cube = glm::scale(model_cube, glm::vec3(0.40f));
-
-            glm::mat4 model_cylinder = glm::translate(glm::mat4(1.0f),
-                                                      glm::vec3(-0.32f, 0.0f, 0.0f));
-            model_cylinder = model_cylinder * inclinacion;
-
-            glm::mat4 model_sphere = glm::translate(glm::mat4(1.0f),
-                                                    glm::vec3(0.26f, 0.0f, 0.0f));
-            model_sphere = model_sphere * inclinacion;
-
-            glm::mat4 model_cone = glm::translate(glm::mat4(1.0f),
-                                                  glm::vec3(0.82f, 0.0f, 0.0f));
-            model_cone = model_cone * inclinacion;
+                                        glm::radians(25.0f),
+                                        glm::vec3(0.0f, 1.0f, 0.0f)),
+                            glm::radians(-65.0f),
+                            glm::vec3(1.0f, 0.0f, 0.0f));
 
             glEnable(GL_DEPTH_TEST);   // una vez, antes del loop (caja negra)
 
@@ -219,44 +201,56 @@ int main()
             while (!glfwWindowShouldClose(window)) {
                 processInput(window);
 
+                // Actitud de verificación: cabeceo oscilante (la nariz sube
+                // y baja). Solo cambia la pose; las piezas y las matrices
+                // locales no se tocan.
+                const double t = glfwGetTime();
+                const float cabeceo = glm::radians(20.0f) *
+                                      static_cast<float>(std::sin(t * 0.75));
+
+                avion.update(glm::vec3(0.0f), glm::vec3(cabeceo, 0.0f, 0.0f));
+
+                std::vector<RenderItem> items;
+                avion.collect(items);
+
                 glClearColor(51.0f / 256.0f, 55.0f / 256.0f, 76.0f / 256.0f, 1.0f);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
                 shader.use();
                 shader.set_uniform(loc_ajuste, ajuste);
 
-                // Etapa 4: dibujar. Cada pieza: cambiar uColor + uModel y
-                // dibujar la MISMA malla con distinta transformación.
-                shader.set_uniform(loc_color, glm::vec3(1.0f, 0.25f, 0.25f));
-                shader.set_uniform(loc_model, model_cube);
-                glBindVertexArray(cube.vao());
-                glDrawElements(GL_TRIANGLES, cube.count(), GL_UNSIGNED_INT,
-                               nullptr);
-
-                shader.set_uniform(loc_color, glm::vec3(0.25f, 1.0f, 0.35f));
-                shader.set_uniform(loc_model, model_cylinder);
-                glBindVertexArray(cylinder.vao());
-                glDrawElements(GL_TRIANGLES, cylinder.count(), GL_UNSIGNED_INT,
-                               nullptr);
-
-                shader.set_uniform(loc_color, glm::vec3(1.0f, 0.85f, 0.25f));
-                shader.set_uniform(loc_model, model_sphere);
-                glBindVertexArray(sphere.vao());
-                glDrawElements(GL_TRIANGLES, sphere.count(), GL_UNSIGNED_INT,
-                               nullptr);
-
-                shader.set_uniform(loc_color, glm::vec3(0.35f, 0.55f, 1.0f));
-                shader.set_uniform(loc_model, model_cone);
-                glBindVertexArray(cone.vao());
-                glDrawElements(GL_TRIANGLES, cone.count(), GL_UNSIGNED_INT,
-                               nullptr);
+                // Etapa 4: dibujar. La lista ya viene con la transformación
+                // compuesta (pose * local): acá solo se cambian uniforms y
+                // se emite el draw call.
+                // Línea por línea:                                                                                                                              
+                //  1. set_uniform(loc_color, ...) — le dice al shader de qué color pintar esta pieza (uColor). Usa la                                               
+                    // ubicación cacheada (loc_color), no busca el string en cada cuadro.                                                                            
+                //  2. set_uniform(loc_model, vista * item.model) — le pasa la matriz que transforma el vértice. Acá se                                              
+                   // compone la vista con la matriz de la pieza (que ya traía pose·local). Es el producto final vista                                              
+                   // · pose · local; el shader lo aplica: gl_Position = uAjuste · uModel · v.                                                                      
+                //  3. glBindVertexArray(item.mesh->vao()) — "conecta" la geometría de esa pieza (sus vértices/índices)                                              
+                   // para que las próximas llamadas de dibujo usen esa malla. El VAO guarda toda la configuración de                                               
+                   // atributos.                                                                                                                                    
+                //  4. glDrawElements(...) — es el draw call: manda a dibujar. GL_TRIANGLES = la malla está hecha de                                                 
+                   // triángulos; count() = cuántos índices tiene (lo que se dibuja); GL_UNSIGNED_INT = el tipo de los                                              
+                   // índices; nullptr = los índices están en el EBO ya conectado al VAO (no hay que pasar un puntero).                                             
+                //  En resumen: el main no "dibuja el avión" — recorre la lista que le entregó collect() y, por cada                                                 
+                //  pieza, configura los uniformes (color + matriz) y emite un draw call. El shader, con esos uniformes                                              
+                //  + la geometría del VAO, es quien produce los píxeles en la GPU.
+                for (const RenderItem& item : items) {
+                    shader.set_uniform(loc_color, item.color);
+                    shader.set_uniform(loc_model, vista * item.model);
+                    glBindVertexArray(item.mesh->vao());
+                    glDrawElements(GL_TRIANGLES, item.mesh->count(),
+                                   GL_UNSIGNED_INT, nullptr);
+                }
 
                 glBindVertexArray(0);   // desactivar, para no estorbar
 
                 glfwSwapBuffers(window);
                 glfwPollEvents();
             }
-        }   // <-- acá se destruyen shader y meshes: destructores con contexto vivo
+        }   // <-- acá se destruyen shader y aeronave: destructores con contexto vivo
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         glfwDestroyWindow(window);
