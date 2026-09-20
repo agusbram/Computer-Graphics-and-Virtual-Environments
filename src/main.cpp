@@ -1,30 +1,22 @@
 // -----------------------------------------------------------------------------
-// main.cpp — Armado de la aeronave (Práctico 04)
+// main.cpp — Cámara en la escena (Práctico 05)
 //
-// Escena con UN solo modelo: la aeronave, compuesta por varias primitivas
-// del Práctico 03 (nariz, fuselaje, cola, alas y empenajes). Las mallas y
-// las matrices LOCALES se arman una sola vez en Aircraft::init(); por cuadro
-// solo se recalcula la POSE (posición + orientación del avión) y se pide la
-// lista de piezas ya transformadas con collect().
+// Escena con la aeronave del Práctico 04 (quieta) y una CÁMARA ORBITAL en
+// perspectiva. La "caja negra" uAjuste se reemplazó por dos matrices, vista y
+// proyección (Unidad VII): gl_Position = uProjection * uView * uModel * v.
 //
-// La verificación del práctico: un cabeceo oscilante (la nariz sube y baja)
-// que se aplica a TODAS las piezas a la vez, girando alrededor del punto de
-// referencia (centro de gravedad) y no de un punto arbitrario.
+// Por cuadro:
+//   - InputHandler lee el mouse (polling) y produce los deltas (CameraCommand).
+//   - CameraSystem acumula/acota esos deltas y recalcula view (lookAt).
+//   - Se dibuja la lista de piezas del avión con la proyección ya armada.
+// La proyección se recalcula al redimensionar la ventana (callback).
 //
-// Etapas del plasmado:
-//   1. decidir los datos  -> Aircraft::init()      (primitivas + matrices locales)
-//   2. pasarlos a la GPU  -> Mesh::load()          (dentro de init())
-//   3. armar el programa  -> ResourceManager (lee) + Shader (compila + uniforms)
-//   4. dibujar            -> collect() + glDrawElements + set_uniform
+// Controles: botón izquierdo arrastrado = orbitar (yaw/pitch); botón derecho
+// arrastrado (vertical) = acercar/alejar.
 //
-// La caja negra que queda (uAjuste) corrige el aspect y niega Z; la rotación
-// de vista es la misma idea del Práctico 03 (mirar el modelo "de esquina"),
-// pero ahora vive en main y NO se mezcla con las matrices de modelo de las
-// piezas: uModel = vista * (pose * local). La matriz de vista real llega en
-// la Unidad VII.
+// IMPORTANTE: este main.cpp NO posee recursos de OpenGL (no hay glDelete*).
 // -----------------------------------------------------------------------------
 
-#include <cmath>            // std::sin
 #include <cstdlib>          // EXIT_FAILURE, EXIT_SUCCESS
 #include <exception>        // std::exception
 #include <iostream>         // std::cout, std::endl, std::cerr
@@ -33,17 +25,18 @@
 #include <vector>           // std::vector
 
 #include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 
 #include <glad/gl.h>        // Funciones de OpenGL (cargador de extensiones)
 #include <GLFW/glfw3.h>     // Gestión de ventana y contexto OpenGL
 
 #include "core/Aircraft.h"
+#include "core/CameraSystem.h"
+#include "core/InputHandler.h"
 #include "core/ResourceManager.h"
 #include "core/Shader.h"
 
 // Datos básicos de la ventana
-static const char* kWindowTitle     = "Práctico 04 - Armado de la aeronave"; // Título
+static const char* kWindowTitle     = "Práctico 05 - Cámara en la escena"; // Título
 static constexpr int kWindowWidth   = 800;  // Ancho inicial en píxeles
 static constexpr int kWindowHeight  = 600;  // Alto inicial en píxeles
 static constexpr int kGLVerMajor    = 4;    // Versión mayor de OpenGL pedida
@@ -110,13 +103,11 @@ int main()
     }
 
     print_gl_version();
-
-    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSwapInterval(1);
 
     // ------------------------------------------------------------------
-    // Etapas del plasmado. Shader y Aircraft viven dentro de un bloque { }
-    // para que sus destructores corran con el contexto OpenGL vivo.
+    // Etapas del plasmado. Shader, Aircraft y CameraSystem viven dentro de
+    // un bloque { } para que sus destructores corran con el contexto vivo.
     // ------------------------------------------------------------------
     try {
         // Etapa 3a: el ResourceManager lee los fuentes de disco.
@@ -137,20 +128,20 @@ int main()
 
             // Ubicaciones de los uniform cacheadas UNA vez: dentro del loop
             // se setea con el entero y no se busca el string en cada cuadro.
-            const int loc_model  = shader.loc("uModel");
-            const int loc_color  = shader.loc("uColor");
-            const int loc_ajuste = shader.loc("uAjuste");
+            const int loc_model      = shader.loc("uModel");
+            const int loc_view       = shader.loc("uView");
+            const int loc_projection = shader.loc("uProjection");
+            const int loc_color      = shader.loc("uColor");
 
             // Etapas 1 y 2: la aeronave arma sus mallas y matrices locales
-            // UNA sola vez (Aircraft::init no se vuelve a llamar).
+            // UNA sola vez. El avión queda QUIETO (la pose en identidad):
+            // la verificación de este práctico es la cámara, no el cabeceo.
             Aircraft avion;
             avion.init();
 
-            // "Contar" (actividad aúlica): cuántas mallas distintas hay y
-            // cuántas matrices de modelo se calculan por cuadro. Se cuenta
-            // con la propia lista de RenderItems: piezas vs mallas distintas.
+            // "Contar" (de la actividad aúlica del Práctico 04): cuántas
+            // mallas distintas hay y cuántas matrices de modelo por cuadro.
             {
-                avion.update(glm::vec3(0.0f), glm::vec3(0.0f));
                 std::vector<RenderItem> conteo;
                 avion.collect(conteo);
 
@@ -161,39 +152,28 @@ int main()
                 std::cout << "aeronave : " << conteo.size()
                           << " piezas con " << mallas.size()
                           << " mallas distintas" << std::endl;
-                std::cout << "  (las cuatro placas -alas y empenajes- "
-                             "comparten la malla del cubo;" << std::endl;
-                std::cout << "   las matrices de modelo por cuadro son "
-                          << conteo.size() << ", una por pieza)" << std::endl;
             }
 
-            // Caja negra de hoy (vista/proyección, Unidad VII): corrige la
-            // relación de aspecto de la ventana y niega el eje Z. Es una
-            // matriz CONSTANTE para toda la escena.
-            const glm::mat4 ajuste = glm::scale(
-                glm::mat4(1.0f),
-                glm::vec3(static_cast<float>(kWindowHeight) / kWindowWidth,
-                          1.0f, -1.0f));
+            // Cámara orbital + entrada. La cámara arma la proyección inicial
+            // con el tamaño de la ventana; el InputHandler produce los deltas
+            // del mouse.
+            CameraSystem camara(kWindowWidth, kWindowHeight);
+            InputHandler input;
 
-            // Rotación de vista: mirar el modelo "de esquina" para que se
-            // vea el volumen (la cámara frontal + color plano dejan todo
-            // chato). Se compone Ry(25) · Rx(-65) (lo escrito más a la
-            // derecha se aplica primero: primero se inclina -65° alrededor de
-            // X y después se rota 25° alrededor de Y). Deja el fuselaje
-            // horizontal en pantalla (el eje X del modelo apunta a la derecha),
-            // el "arriba" del avión casi vertical y las alas diagonales hacia
-            // adentro: una vista 3/4 en la que el cabeceo de la verificación
-            // se ve bien. Vive separada de las matrices de modelo de las
-            // piezas: la pose y las locales describen el MODELO; la vista
-            // describe cómo se lo mira. uModel = vista * item.model.
-            const glm::mat4 vista =
-                glm::rotate(glm::rotate(glm::mat4(1.0f),
-                                        glm::radians(25.0f),
-                                        glm::vec3(0.0f, 1.0f, 0.0f)),
-                            glm::radians(-65.0f),
-                            glm::vec3(1.0f, 0.0f, 0.0f));
+            // El callback de redimensionado es una función libre (no un
+            // método): llega al objeto de la cámara a través del user pointer
+            // de GLFW.
+            glfwSetWindowUserPointer(window, &camara);
+            glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+
+            // Punto al que mira la cámara: el centro del avión. El modelo
+            // tiene la nariz en el origen y llega hasta x=1, así que su
+            // centro geométrico está en x=0.5.
+            const glm::vec3 objetivo(0.5f, 0.0f, 0.0f);
 
             glEnable(GL_DEPTH_TEST);   // una vez, antes del loop (caja negra)
+
+            double tiempo_previo = glfwGetTime();
 
             // ------------------------------------------------------------------
             // Bucle principal de renderizado.
@@ -201,15 +181,17 @@ int main()
             while (!glfwWindowShouldClose(window)) {
                 processInput(window);
 
-                // Actitud de verificación: cabeceo oscilante (la nariz sube
-                // y baja). Solo cambia la pose; las piezas y las matrices
-                // locales no se tocan.
-                const double t = glfwGetTime();
-                const float cabeceo = glm::radians(20.0f) *
-                                      static_cast<float>(std::sin(t * 0.75));
+                // 1) entrada: el mouse produce deltas (píxeles -> rad).
+                const double tiempo = glfwGetTime();
+                const float dt = static_cast<float>(tiempo - tiempo_previo);
+                tiempo_previo = tiempo;
 
-                avion.update(glm::vec3(0.0f), glm::vec3(cabeceo, 0.0f, 0.0f));
+                input.update(window, dt);
 
+                // 2) cámara: acumula/acota los deltas y recalcula la vista.
+                camara.update(objetivo, glm::vec3(0.0f), input.command());
+
+                // 3) la lista de piezas del avión (modelo ya compuesto).
                 std::vector<RenderItem> items;
                 avion.collect(items);
 
@@ -217,29 +199,14 @@ int main()
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
                 shader.use();
-                shader.set_uniform(loc_ajuste, ajuste);
+                shader.set_uniform(loc_projection, camara.data().projection);
+                shader.set_uniform(loc_view, camara.data().view);
 
-                // Etapa 4: dibujar. La lista ya viene con la transformación
-                // compuesta (pose * local): acá solo se cambian uniforms y
-                // se emite el draw call.
-                // Línea por línea:                                                                                                                              
-                //  1. set_uniform(loc_color, ...) — le dice al shader de qué color pintar esta pieza (uColor). Usa la                                               
-                    // ubicación cacheada (loc_color), no busca el string en cada cuadro.                                                                            
-                //  2. set_uniform(loc_model, vista * item.model) — le pasa la matriz que transforma el vértice. Acá se                                              
-                   // compone la vista con la matriz de la pieza (que ya traía pose·local). Es el producto final vista                                              
-                   // · pose · local; el shader lo aplica: gl_Position = uAjuste · uModel · v.                                                                      
-                //  3. glBindVertexArray(item.mesh->vao()) — "conecta" la geometría de esa pieza (sus vértices/índices)                                              
-                   // para que las próximas llamadas de dibujo usen esa malla. El VAO guarda toda la configuración de                                               
-                   // atributos.                                                                                                                                    
-                //  4. glDrawElements(...) — es el draw call: manda a dibujar. GL_TRIANGLES = la malla está hecha de                                                 
-                   // triángulos; count() = cuántos índices tiene (lo que se dibuja); GL_UNSIGNED_INT = el tipo de los                                              
-                   // índices; nullptr = los índices están en el EBO ya conectado al VAO (no hay que pasar un puntero).                                             
-                //  En resumen: el main no "dibuja el avión" — recorre la lista que le entregó collect() y, por cada                                                 
-                //  pieza, configura los uniformes (color + matriz) y emite un draw call. El shader, con esos uniformes                                              
-                //  + la geometría del VAO, es quien produce los píxeles en la GPU.
+                // Etapa 4: dibujar. Cada pieza: cambiar uColor + uModel y
+                // emitir el draw call.
                 for (const RenderItem& item : items) {
                     shader.set_uniform(loc_color, item.color);
-                    shader.set_uniform(loc_model, vista * item.model);
+                    shader.set_uniform(loc_model, item.model);
                     glBindVertexArray(item.mesh->vao());
                     glDrawElements(GL_TRIANGLES, item.mesh->count(),
                                    GL_UNSIGNED_INT, nullptr);
@@ -250,7 +217,7 @@ int main()
                 glfwSwapBuffers(window);
                 glfwPollEvents();
             }
-        }   // <-- acá se destruyen shader y aeronave: destructores con contexto vivo
+        }   // <-- acá se destruyen shader, aeronave y cámara
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         glfwDestroyWindow(window);
@@ -275,9 +242,16 @@ void error_callback(int error, const char *description){
 // -----------------------------------------------------------------------------
 // framebuffer_size_callback
 // -----------------------------------------------------------------------------
-void framebuffer_size_callback([[maybe_unused]]  GLFWwindow* window,
-                               int width, int height){
-    glViewport(0, 0, width, height);
+void framebuffer_size_callback(GLFWwindow* window, int width, int height){
+    glViewport(0, 0, width, height);   // el rectángulo de píxeles donde se dibuja
+
+    // La proyección depende del aspect del framebuffer: se recalcula en la
+    // cámara. El callback es función libre, así que llega al objeto por el
+    // user pointer de GLFW.
+    void* p = glfwGetWindowUserPointer(window);
+    if (p != nullptr) {
+        static_cast<CameraSystem*>(p)->set_viewport(width, height);
+    }
 }
 
 // -----------------------------------------------------------------------------

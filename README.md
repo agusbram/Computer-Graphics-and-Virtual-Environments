@@ -1,4 +1,4 @@
-# CGyAV — Proyecto OpenGL (template + Prácticos 01, 02, 03 y 04)
+# CGyAV — Proyecto OpenGL (template + Prácticos 01, 02, 03, 04 y 05)
 
 Proyecto base de **Computación gráfica y ambientes virtuales (0494)** — CRUC-IUA.
 Template de aplicación OpenGL moderna (core profile 4.6) con GLFW + GLAD sobre el
@@ -18,6 +18,10 @@ que se desarrollan los prácticos del proyecto integrador
   el módulo `Aircraft`, con matrices locales fijas y una pose
   (posición + orientación) recalculada por cuadro; verificado con un cabeceo
   oscilante alrededor del centro de gravedad.
+- **Práctico 05** — *Cámara en la escena*: la "caja negra" `uAjuste` se
+  reemplaza por matrices de vista y proyección en perspectiva (`glm::lookAt` +
+  `glm::perspective`), con una cámara orbital (`CameraSystem`) controlable con
+  el mouse (`InputHandler`) y proyección recalculada al redimensionar.
 
 ---
 
@@ -33,10 +37,12 @@ que se desarrollan los prácticos del proyecto integrador
 
 ```bash
 make            # compila en build/ y genera bin/ogl-app
-./bin/ogl-app   # escena con la aeronave (cabeceo oscilante para verificar la pose)
+./bin/ogl-app   # escena con la aeronave y cámara orbital en perspectiva
 ```
 
 - `ESC` cierra la aplicación.
+- **Mouse**: botón izquierdo arrastrado = orbitar (yaw/pitch); botón derecho
+  arrastrado (vertical) = acercar/alejar.
 - La consola muestra versión de driver/vendor/GLSL al arrancar.
 - Los errores de shaders se informan por consola (logs GLSL con tamaño dinámico).
 
@@ -49,7 +55,7 @@ make            # compila en build/ y genera bin/ogl-app
 ├── assets/
 │   └── shaders/            # fuentes GLSL externos (solid.vs / solid.fs, triangle.*)
 ├── src/
-│   ├── main.cpp            # app: escena con la aeronave + pose (sin recursos propios de GL)
+│   ├── main.cpp            # app: aeronave + cámara orbital (sin recursos propios de GL)
 │   └── core/
 │       ├── MeshData.h          # tupla Vertex {position, normal, tex_coords} (glm)
 │       ├── Mesh.h/.cpp         # dueño del VAO/VBO/EBO (DSA 4.5, 3 atributos)
@@ -57,6 +63,10 @@ make            # compila en build/ y genera bin/ogl-app
 │       ├── Primitives.h/.cpp   # cube(), cylinder(), cone() y sphere() (opcional)
 │       ├── Aircraft.h/.cpp     # modelo de la aeronave: piezas + locales + pose
 │       ├── RenderItem.h        # item de dibujo {mesh, model, color} (Práctico 04)
+│       ├── CameraData.h        # par de matrices {view, projection} (Práctico 05)
+│       ├── CameraCommand.h     # deltas de órbita {yaw, pitch, distancia}
+│       ├── CameraSystem.h/.cpp # cámara orbital: lookAt + perspective
+│       ├── InputHandler.h/.cpp # mouse por polling -> CameraCommand
 │       ├── ResourceManager.h   # cache de recursos (C++ puro, sin OpenGL)
 │       └── ResourceManager.cpp
 ├── tests/
@@ -71,6 +81,7 @@ make            # compila en build/ y genera bin/ogl-app
 ├── Practico02-Portabilidad.md     # por qué el diseño permite agregar figuras nuevas
 ├── Practico03-Decisiones.md       # apuntes: tupla, paramétricas, uniforms, matriz de modelo
 ├── Practico04-Decisiones.md       # apuntes: despiece de la aeronave, módulo Aircraft, pose
+├── Practico05-Decisiones.md       # apuntes: cámara orbital, perspectiva, input por mouse
 └── Arquitectura-Proyecto.md       # arquitectura en capas (destino del proyecto, para más adelante)
 ```
 
@@ -173,11 +184,36 @@ compuesta por varias primitivas y encapsulada en el módulo `Aircraft`.
 - Verificación: cabeceo oscilante (`20° · sin(t·0.75)`) — todas las piezas
   giran juntas alrededor del centro de gravedad. Ver `Practico04-Decisiones.md`.
 
+## Cámara en la escena (Práctico 05)
+
+La "caja negra" `uAjuste` se reemplaza por **vista** y **proyección** en
+perspectiva, y se agrega una cámara orbital controlable con el mouse.
+
+| Pieza | Cambio |
+|---|---|
+| `solid.vs` | `uAjuste` se parte en `uView` + `uProjection`: `gl_Position = uProjection · uView · uModel · v` |
+| `CameraData.h` (nuevo) | `{glm::mat4 view, projection}` — lo único que sale del módulo de cámara |
+| `CameraCommand.h` (nuevo) | deltas de órbita `{yaw_delta, pitch_delta, dist_delta}` |
+| `CameraSystem.h/.cpp` (nuevo) | cámara orbital (yaw/pitch/distancia), `glm::lookAt` + `glm::perspective`; `set_viewport()` recalcula la proyección |
+| `InputHandler.h/.cpp` (nuevo) | mouse por polling → traduce píxeles a radianes → `CameraCommand` |
+| `main.cpp` | por cuadro: `input.update()` → `camara.update()` → dibujar; callback de resize → `set_viewport` |
+
+- Proyección en **perspectiva**: `glm::perspective(45°, aspect, 0.1, 100)`;
+  la cuarta fila queda en `(0,0,−1,0)` (`w = −z`), así los objetos lejanos se
+  achican (antes, con `uAjuste`, no había división por w).
+- Cámara orbital: el eje polar de la órbita es **Z** (la vertical de la
+  escena); `pitch` acotado a ±81°, distancia a [2, 40]; el `up` es `(0,0,1)`.
+- Mouse: botón izquierdo = orbitar, botón derecho (vertical) = zoom.
+- La proyección se recalcula al redimensionar (callback con `glfwSetWindowUserPointer`).
+  Ver `Practico05-Decisiones.md`.
+
 ## Documentación de los prácticos
 
 - [`Arquitectura-Proyecto.md`](Arquitectura-Proyecto.md) — arquitectura en capas
   del proyecto (aplicación / sistemas / datos), destino del simulador; se aplica
   cuando lleguen la cámara y el FDM.
+- [`Practico05-Decisiones.md`](Practico05-Decisiones.md) — cámara orbital,
+  proyección en perspectiva, manejo del mouse y callback de redimensionado.
 - [`Practico04-Decisiones.md`](Practico04-Decisiones.md) — despiece de la
   aeronave, sistema de referencia, módulo `Aircraft`, la pose con su punto de
   referencia y cómo se verifica la rotación conjunta.
@@ -203,7 +239,7 @@ compuesta por varias primitivas y encapsulada en el módulo `Aircraft`.
 
 Simulador de acrobacias aéreas (entrega final con defensa oral). Módulos por clase:
 shaders ✔ → primitivas 3D/Mesh/Shader ✔ → matrices ✔ (matriz de modelo) → aeronave ✔ →
-cámara → FDM/game loop → terreno/HUD/texturas → circuito/maniobras/puntuación.
+cámara ✔ → FDM/game loop → terreno/HUD/texturas → circuito/maniobras/puntuación.
 
 Requerimientos mínimos: escenario 3D, aeronave con actitud correcta, HUD (3
 instrumentos), control vía teclado/joystick con FDM provisto, 3 cámaras, circuito

@@ -106,8 +106,10 @@ La arquitectura es el **destino**; el código actual ya da pasos hacia ella:
 
 ### Cuándo se aplica
 
-- **Cámara (Unidad VII)**: `CameraSystem`/`Camera` + un `Renderer` real, y se
-  saca el dibujado del `main`.
+- **Cámara (Unidad VII)** ✔ — ya implementado en el Práctico 05: `CameraSystem`
+  (cámara orbital, `CameraData`/`CameraCommand`) e `InputHandler` (mouse). El
+  `Renderer` real y las "3 vistas" del sistema de cámaras quedan para más
+  adelante.
 - **FDM / game loop**: `FlightData` como POD compartido + `FDM`.
 - **HUD / terreno / texturas**: los módulos `HUD` y `Scene` completos.
 - **Circuito / maniobras**: `CircuitState` + `GameLogic`.
