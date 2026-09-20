@@ -298,6 +298,13 @@ MeshData sphere(float radio, unsigned gajos, unsigned anillos)
         mesh.vertices.push_back(pole);
     }
 
+    // "Anillos de LATITUD" (como los paralelos de un globo terráqueo): la
+    // esfera se curva en TODAS las direcciones, a diferencia del cilindro/
+    // cono que solo se curvan alrededor del eje. Por eso, en vez de dos
+    // anillos (borde de arriba/abajo), se reparte un anillo por cada latitud
+    // entre el polo sur (-90°) y el norte (+90°). Cada anillo vive a una
+    // latitud fija: altura y = r·sin(lat) y radio r·cos(lat) — el radio se
+    // achica hacia los polos hasta colapsar en un punto (el polo).
     for (unsigned i = 1; i < anillos; ++i) {
         const float v  = static_cast<float>(i) / static_cast<float>(anillos);
         const float lat = -kPi * 0.5f + kPi * v;          // latitud: sur .. norte

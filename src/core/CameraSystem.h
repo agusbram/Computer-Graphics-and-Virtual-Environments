@@ -59,11 +59,21 @@ public:
     // llega en 0 (ventana minimizada) se usa 1 para no dividir por cero.
     void set_viewport(int width, int height);
 
+    // Accesor: lo ÚNICO que sale del módulo. Devuelve una REFERENCIA
+    // (no una copia: no se copian dos matrices 4x4 por cuadro) y const
+    // (solo lectura). El `const` final dice que el método no modifica el
+    // objeto, así que puede llamarse sobre un CameraSystem const.
     const CameraData& data() const { return data_; }
 
 private:
+    // ESTADO de la órbita: los tres números que describen dónde está la
+    // cámara alrededor del objetivo. Se acumulan/acotan dentro de update().
     float yaw_       = 0.785f;  // acimut [rad] (~45°, arranca en 3/4)
     float pitch_     = 0.35f;   // latitud [rad] (~20°, algo elevada)
     float distancia_ = 5.0f;    // distancia al objetivo [unidades de escena]
+
+    // RESULTADO: las matrices view/projection. update() rellena .view y
+    // set_viewport() rellena .projection; se lee por data(). Es privado para
+    // que nadie lo toque por fuera (encapsulamiento, como vao_ en Mesh).
     CameraData data_ {};
 };

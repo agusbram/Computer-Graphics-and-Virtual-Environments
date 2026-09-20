@@ -52,6 +52,10 @@ public:
     void load(const MeshData& data);            // sube a la GPU y arma el VAO
     void clear(void);
 
+    // Getters: devuelven los miembros privados (encapsulamiento). Los valores
+    // se asignan en load(): vao_ por glCreateVertexArrays (OpenGL guarda el
+    // "nombre"/ID del VAO), count_ por la cantidad de índices de la malla.
+    // Son const: pueden llamarse sobre un const Mesh* (como el de RenderItem).
     unsigned int vao(void) const { return vao_; }
     int count(void) const         { return count_; }   // cantidad de INDICES
 private:

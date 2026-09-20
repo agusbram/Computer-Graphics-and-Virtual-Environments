@@ -49,6 +49,10 @@ void Mesh::load(const MeshData& data)
     }
 
     // VAO: recuerda la organizacion de los buffers y sus atributos.
+    // ACÁ es donde vao_ recibe su valor: OpenGL crea el objeto VAO y guarda
+    // su NOMBRE (un entero que apunta a memoria de la GPU) en vao_. En el
+    // header solo estaba DECLARADO (inicializado en 0); es load() quien le da
+    // el valor real. Después vao() solo devuelve ese entero para bindearlo.
     glCreateVertexArrays(1, &vao_);
 
     // VBO: UN solo buffer con la tupla completa entrelazada (posicion +

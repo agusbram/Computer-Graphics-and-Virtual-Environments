@@ -11,11 +11,20 @@
 namespace {
 
 // Parámetros de la proyección en perspectiva (Unidad VII):
-//   - fovy (θh): ángulo de visión vertical, en RADIANES (45°).
+//   - fovy (θh): ángulo de visión VERTICAL, en RADIANES (45°). Es la apertura
+//     del "embudo" (frustum) en vertical, medida desde la cámara: define
+//     CUÁNTO del mundo entra en la pantalla. Ángulo grande = gran angular
+//     (más mundo, más distorsión); ángulo chico = teleobjetivo (menos mundo,
+//     sin distorsión). 45° aproxima el campo que el ojo humano distingue
+//     bien. El ángulo horizontal θw NO se da aparte: sale del vertical más
+//     el aspect (tan(θw/2) = aspect · tan(θh/2)). Como fovy queda FIJO, al
+//     redimensionar la ventana el tamaño del objeto en pantalla depende solo
+//     de la ALTURA (por eso en horizontal no se achica: el aspect absorbe el
+//     cambio de ancho).
 //   - near/far: planos de recorte. near no debe ser muy chico (precisión del
 //     z-buffer, Unidad VIII). La recomendación es "near tan lejos como se
 //     pueda sin eliminar lo que hace falta ver".
-constexpr float kFovyRad = 0.785398163f;   // 45°
+constexpr float kFovyRad = 0.785398163f;   // 45° (glm::radians(45.0f))
 constexpr float kNear    = 0.1f;
 constexpr float kFar     = 100.0f;
 
@@ -42,9 +51,15 @@ void CameraSystem::update(const glm::vec3& objetivo,
     pitch_     += cmd.pitch_delta;
     distancia_ += cmd.dist_delta;
 
-    // Acotar el estado. El pitch no puede llegar a ±90°: ahí el up y la
-    // dirección de vista son colineales y lookAt produce una matriz
-    // indefinida (el producto vectorial de adentro se anula).
+    // Acotar el estado. glm::clamp(v, min, max) "sujeta" el valor al rango
+    // [min, max]: si v < min devuelve min, si v > max devuelve max, y si está
+    // adentro lo deja igual (es un "si se pasa, lo aplasto al borde").
+    //   pitch: no puede llegar a ±90° (se acota a ±0.9·π/2 ≈ ±81°): ahí el
+    //     up y la dirección de vista serían colineales y lookAt produciría
+    //     una matriz indefinida (el producto vectorial de adentro se anula ->
+    //     la imagen "explota" o queda negra).
+    //   distancia: entre un mínimo (no atravesar el modelo) y un máximo
+    //     (no perderlo de vista). Acumular deltas sin límite rompería esto.
     pitch_     = glm::clamp(pitch_, -kPitchMax, kPitchMax);
     distancia_ = glm::clamp(distancia_, kDistMin, kDistMax);
 

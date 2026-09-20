@@ -14,9 +14,10 @@
 //   2. MAPEO (dos de los tres controles al mouse; el tercero con un botón):
 //        - botón IZQUIERDO arrastrado  -> yaw (eje X) y pitch (eje Y)
 //        - botón DERECHO arrastrado    -> distancia (eje Y vertical)
-//      Deltas: yaw_delta = +dx·g, pitch_delta = −dy·g, dist_delta = +dy·gd
-//      (arrastrar hacia abajo aleja; invertir un eje es solo cambiar un
-//      signo si se prefiere otro sentido).
+//      Deltas: yaw_delta = −dx·g, pitch_delta = +dy·g, dist_delta = +dy·gd
+//      Convención "orbitar alrededor": la cámara se mueve con el mouse y el
+//      avión gira en sentido contrario (arrastrar → nariz a la izquierda;
+//      arrastrar ↑ nariz baja). Arrastrar hacia abajo aleja.
 //   3. PRIMER CUADRO: no hay "posición anterior", el delta vale 0 (solo se
 //      guarda la posición para el cuadro siguiente).
 //   4. Deltas por PÍXEL: como el arrastre acumula píxeles, el total no

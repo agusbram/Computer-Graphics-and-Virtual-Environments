@@ -160,9 +160,14 @@ int main()
             CameraSystem camara(kWindowWidth, kWindowHeight);
             InputHandler input;
 
-            // El callback de redimensionado es una función libre (no un
-            // método): llega al objeto de la cámara a través del user pointer
-            // de GLFW.
+            // El callback de redimensionado tiene que ser una FUNCIÓN LIBRE
+            // (no un método): GLFW es una librería en C y no entiende objetos
+            // C++. Como la función suelta no puede "ver" a la variable local
+            // `camara`, le colgamos su dirección a la ventana con
+            // glfwSetWindowUserPointer (un "bolsillo" de la ventana). Después,
+            // dentro del callback, glfwGetWindowUserPointer recupera ese
+            // puntero para llamar a set_viewport. Es la respuesta a la
+            // "cuestión a pensar" de la guía.
             glfwSetWindowUserPointer(window, &camara);
             glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
@@ -242,12 +247,22 @@ void error_callback(int error, const char *description){
 // -----------------------------------------------------------------------------
 // framebuffer_size_callback
 // -----------------------------------------------------------------------------
+// GLFW llama a esta función cada vez que el usuario cambia el tamaño de la
+// ventana, con el nuevo ancho/alto EN PÍXELES. El "framebuffer" es la grilla
+// de píxeles en la placa de video donde OpenGL dibuja (no es la ventana del
+// SO: pueden diferir, p. ej. en pantallas HiDPI). Hay que hacer DOS cosas
+// distintas, y las dos hacen falta:
+//   1. glViewport: en QUÉ rectángulo de píxeles se dibuja. Sin esto se dibuja
+//      en el rectángulo viejo (la imagen no llena la nueva ventana).
+//   2. set_viewport: recalcular la proyección con el nuevo aspect. Sin esto
+//      la escena se ESTIRA (el frustum no coincide con la nueva proporción).
 void framebuffer_size_callback(GLFWwindow* window, int width, int height){
-    glViewport(0, 0, width, height);   // el rectángulo de píxeles donde se dibuja
+    glViewport(0, 0, width, height);   // 1) el rectángulo de píxeles donde se dibuja
 
-    // La proyección depende del aspect del framebuffer: se recalcula en la
-    // cámara. El callback es función libre, así que llega al objeto por el
-    // user pointer de GLFW.
+    // 2) Recalcular la proyección. Como esta es una función libre (GLFW no
+    // entiende métodos), no puede ver el objeto `camara`: recupera el puntero
+    // que main dejó con glfwSetWindowUserPointer y lo castea de vuelta a
+    // CameraSystem* para llamar a set_viewport.
     void* p = glfwGetWindowUserPointer(window);
     if (p != nullptr) {
         static_cast<CameraSystem*>(p)->set_viewport(width, height);

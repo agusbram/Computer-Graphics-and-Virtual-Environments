@@ -101,8 +101,10 @@ modelo):
 - **Mapeo** (dos de tres controles al mouse, el tercero con un botón):
   - botón **izquierdo** arrastrado → `yaw` (eje X) y `pitch` (eje Y);
   - botón **derecho** arrastrado (vertical) → `distancia`.
-- Deltas: `yaw_delta = +dx·g`, `pitch_delta = −dy·g`, `dist_delta = +dy·gd`.
-  (Arrastrar hacia abajo aleja; invertir un sentido es solo cambiar un signo.)
+- Deltas: `yaw_delta = −dx·g`, `pitch_delta = +dy·g`, `dist_delta = +dy·gd`.
+  Convención **"orbitar alrededor"**: la cámara se mueve con el mouse y el
+  avión gira en sentido contrario (arrastrar → nariz a la izquierda; arrastrar
+  ↑ nariz baja). Arrastrar hacia abajo aleja.
 - Ganancias: `0.008` rad/px (angular) y `0.03` unidades/px (distancia).
 
 ---

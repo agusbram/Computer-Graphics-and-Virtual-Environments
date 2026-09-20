@@ -59,8 +59,11 @@ void Aircraft::init()
 
     // ------------------------------------------------------------------
     // 2) Matrices locales por PIEZA (7), en coordenadas del modelo, desde
-    //    la identidad. En glm lo escrito más a la derecha se aplica primero:
-    //    primero se rota/escala la primitiva y después se la traslada.
+    //    la identidad. Mlocal ubica la primitiva DENTRO del modelo: la
+    //    orienta (rotación), la escala (placas) y la traslada a su lugar.
+    //    Es FIJA: se arma una sola vez acá y no cambia por cuadro (solo
+    //    Mpose cambia). En glm lo escrito más a la derecha se aplica
+    //    primero: primero se rota/escala la primitiva y después se traslada.
     // ------------------------------------------------------------------
     locales_.clear();
     colores_.clear();
@@ -131,6 +134,13 @@ void Aircraft::init()
 void Aircraft::update(const glm::vec3& pos, const glm::vec3& angulos)
 {
     // Mpose = T(pos) * Rx(rolido) * Ry(cabeceo) * Rz(guiñada) * T(-ref)
+    // Los tres ángulos de ACTITUD (rolido/cabeceo/guiñada) definen, junto con
+    // la posición, la orientación del avión en el mundo (su "pose"):
+    //   - cabeceo (pitch): sube/baja la NARIZ, alrededor del eje Y (lateral)
+    //   - rolido  (roll):  inclina el avión de lado, alrededor del eje X
+    //     (longitudinal, nariz->cola)
+    //   - guiñada (yaw):   gira la proa a izq/der, alrededor del eje Z (vertical)
+    // Hoy solo se usa el cabeceo (verificación); roll/yaw quedan para el FDM.
     // Lo escrito más a la derecha se aplica primero: se lleva el punto de
     // referencia al origen, se rota y por último se traslada a la posición
     // del avión en el mundo. Sin el T(-ref) el avión giraría "en arco"
@@ -148,7 +158,13 @@ void Aircraft::collect(std::vector<RenderItem>& items) const
 {
     // Un RenderItem por pieza, con la transformación ya compuesta.
     // El resto del programa no sabe cuántas piezas hay ni cómo están
-    // armadas: solo recorre esta lista y dibuja.
+    // armadas: solo recorre esta lista y dibuja. (collect NO dibuja: solo
+    // describe QUÉ dibujar; el draw call vive en main.)
+    //
+    // Hay MENOS mallas que piezas (4 vs 7): las cuatro placas comparten la
+    // malla del cubo. malla_de_[i] guarda, para cada pieza, QUÉ malla le
+    // toca (índice dentro de piezas_). Por eso va &piezas_[malla_de_[i]] y
+    // no &piezas_[i].
     for (std::size_t i = 0; i < locales_.size(); ++i) {
         RenderItem item;
         item.mesh  = &piezas_[malla_de_[i]];
