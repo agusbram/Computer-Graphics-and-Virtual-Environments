@@ -1,22 +1,28 @@
 // -----------------------------------------------------------------------------
-// main.cpp — Cámara en la escena (Práctico 05)
+// main.cpp — FDM, game loop e input (Práctico 06)
 //
-// Escena con la aeronave del Práctico 04 (quieta) y una CÁMARA ORBITAL en
-// perspectiva. La "caja negra" uAjuste se reemplazó por dos matrices, vista y
-// proyección (Unidad VII): gl_Position = uProjection * uView * uModel * v.
+// Escena con la aeronave (Práctico 04) + cámara orbital (Práctico 05) cuyo
+// movimiento ahora lo dicta el modelo de dinámica de vuelo (dlfdm), con el
+// teclado controlando los cuatro mandos.
 //
-// Por cuadro:
-//   - InputHandler lee el mouse (polling) y produce los deltas (CameraCommand).
-//   - CameraSystem acumula/acota esos deltas y recalcula view (lookAt).
-//   - Se dibuja la lista de piezas del avión con la proyección ya armada.
-// La proyección se recalcula al redimensionar la ventana (callback).
+// Lo nuevo del Práctico 06:
+//   1. GAME LOOP con PASO FIJO + ACUMULADOR: el FDM necesita un paso pequeño y
+//      constante (dt = 1/120 s) para que el error de integración no se acumule,
+//      mientras que los cuadros dependen de la máquina. Se acumula el frame_dt
+//      (con tope 0.25 s para cortar la divergencia) y se consume a pasos
+//      enteros.
+//   2. TECLADO en InputHandler: los cuatro mandos por polling, con RAMPAS.
+//   3. FDM en el loop: update() adentro del while interno y getState() una vez
+//      por cuadro; to_world() lleva la salida NED a coordenadas de la escena.
 //
-// Controles: botón izquierdo arrastrado = orbitar (yaw/pitch); botón derecho
-// arrastrado (vertical) = acercar/alejar.
+// NOTA de escala: el FDM trabaja en SI (metros, m/s) y el avión está a ~5000 m;
+// la cámara lo orbita (el objetivo sigue su posición), así que el tamaño en
+// pantalla no depende de esa magnitud. El modelo del avión mide 1 unidad.
 //
 // IMPORTANTE: este main.cpp NO posee recursos de OpenGL (no hay glDelete*).
 // -----------------------------------------------------------------------------
 
+#include <algorithm>        // std::min
 #include <cstdlib>          // EXIT_FAILURE, EXIT_SUCCESS
 #include <exception>        // std::exception
 #include <iostream>         // std::cout, std::endl, std::cerr
@@ -29,14 +35,20 @@
 #include <glad/gl.h>        // Funciones de OpenGL (cargador de extensiones)
 #include <GLFW/glfw3.h>     // Gestión de ventana y contexto OpenGL
 
+// dlfdm: modelo de dinámica de vuelo (Práctico 06)
+#include <dlfdm/defines.h>
+#include <dlfdm/fdmsolver.h>
+#include <dlfdm/models/aircraft/jettrainer.h>
+
 #include "core/Aircraft.h"
 #include "core/CameraSystem.h"
+#include "core/FlightData.h"
 #include "core/InputHandler.h"
 #include "core/ResourceManager.h"
 #include "core/Shader.h"
 
 // Datos básicos de la ventana
-static const char* kWindowTitle     = "Práctico 05 - Cámara en la escena"; // Título
+static const char* kWindowTitle     = "Práctico 06 - FDM, game loop e input"; // Título
 static constexpr int kWindowWidth   = 800;  // Ancho inicial en píxeles
 static constexpr int kWindowHeight  = 600;  // Alto inicial en píxeles
 static constexpr int kGLVerMajor    = 4;    // Versión mayor de OpenGL pedida
@@ -45,15 +57,28 @@ static constexpr int kGLVerMinor    = 6;    // Versión menor de OpenGL pedida
 // Ruta de los recursos del proyecto (relativa a donde se ejecuta el binario)
 static const char* kAssetsRoot = "./assets";
 
+// Paso FIJO del FDM (debe coincidir con el que usa el solver: 1/120 s).
+static constexpr double kFdmDt = 1.0 / 120.0;
+
 // Variables globales para guardar el último error reportado por GLFW
-// (las rellena la función error_callback, ver más abajo)
 static int glfw_error_code{};
 static std::string glfw_error_str{};
 
-// Declaraciones anticipadas (prototipos) de las funciones auxiliares
+// Contexto que se cuelga de la ventana (glfwSetWindowUserPointer) para que las
+// funciones callback (que son libres, no métodos) puedan llegar a los objetos
+// de la aplicación. Guarda la cámara (para el redimensionado) y los toggles
+// discretos (pausa / wireframe) que cambian por eventos de teclado.
+struct AppContext {
+    CameraSystem* camara = nullptr;
+    bool paused    = false;
+    bool wireframe = false;
+};
+
 static void error_callback(int error, const char *description);
 static void framebuffer_size_callback(GLFWwindow* window,
                                       int width, int height);
+static void key_callback(GLFWwindow* window, int key, int scancode,
+                         int action, int mods);
 static void processInput(GLFWwindow *window);
 static void print_gl_version(void);
 
@@ -61,25 +86,16 @@ int main()
 {
     glfwSetErrorCallback(error_callback);
 
-    // ------------------------------------------------------------------
-    // 1. Inicializar GLFW
-    // ------------------------------------------------------------------
     if (!glfwInit()) {
         std::cout << "GLFW initialization failed! - GLFW("
                   << glfw_error_code << "): " << glfw_error_str << std::endl;
         return EXIT_FAILURE;
     }
 
-    // ------------------------------------------------------------------
-    // 2. Configurar el contexto de OpenGL ANTES de crear la ventana.
-    // ------------------------------------------------------------------
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, kGLVerMajor);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, kGLVerMinor);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    // ------------------------------------------------------------------
-    // 3. Crear la ventana y su contexto OpenGL asociado.
-    // ------------------------------------------------------------------
     GLFWwindow* window = glfwCreateWindow(kWindowWidth,
                                           kWindowHeight,
                                           kWindowTitle, nullptr, nullptr);
@@ -91,10 +107,8 @@ int main()
     }
 
     glfwMakeContextCurrent(window);
+    glfwSetWindowPos(window, 80, 60);   // asegura que la ventana quede visible en pantalla
 
-    // ------------------------------------------------------------------
-    // 4. Cargar las funciones de OpenGL con GLAD.
-    // ------------------------------------------------------------------
     if (!gladLoadGL(glfwGetProcAddress)) {
         glfwDestroyWindow(window);
         glfwTerminate();
@@ -103,20 +117,14 @@ int main()
     }
 
     print_gl_version();
-    glfwSwapInterval(1);
+    glfwSwapInterval(1);   // 1 = vsync (los cuadros siguen el refresco del monitor)
 
-    // ------------------------------------------------------------------
-    // Etapas del plasmado. Shader, Aircraft y CameraSystem viven dentro de
-    // un bloque { } para que sus destructores corran con el contexto vivo.
-    // ------------------------------------------------------------------
     try {
-        // Etapa 3a: el ResourceManager lee los fuentes de disco.
         ResourceManager resources(kAssetsRoot);
         const ShaderSource& solid = resources.load_shader_source(
             "solid", "shaders/solid.vs", "shaders/solid.fs");
 
         {
-            // Etapa 3b: compilar y linkear (falla nunca silenciosa).
             Shader shader;
             if (!shader.compile_from_source(solid.vs, solid.fs)) {
                 std::cout << "El programa de shaders quedó vacío; saliendo sin "
@@ -126,89 +134,120 @@ int main()
                 return EXIT_FAILURE;
             }
 
-            // Ubicaciones de los uniform cacheadas UNA vez: dentro del loop
-            // se setea con el entero y no se busca el string en cada cuadro.
             const int loc_model      = shader.loc("uModel");
             const int loc_view       = shader.loc("uView");
             const int loc_projection = shader.loc("uProjection");
             const int loc_color      = shader.loc("uColor");
 
-            // Etapas 1 y 2: la aeronave arma sus mallas y matrices locales
-            // UNA sola vez. El avión queda QUIETO (la pose en identidad):
-            // la verificación de este práctico es la cámara, no el cabeceo.
+            // --- Escena: la aeronave (Práctico 04) -------------------------
             Aircraft avion;
             avion.init();
 
-            // "Contar" (de la actividad aúlica del Práctico 04): cuántas
-            // mallas distintas hay y cuántas matrices de modelo por cuadro.
-            {
-                std::vector<RenderItem> conteo;
-                avion.collect(conteo);
+            // --- FDM (Práctico 06) -----------------------------------------
+            // FDMSolver es la CAJA NEGRA que resuelve el movimiento del avión
+            // en el tiempo: integra numéricamente las ecuaciones de la dinámica
+            // de cuerpo rígido (ΣF=m·a, ΣM=I·ω̇) para ir del estado actual al
+            // siguiente, con Euler y paso fijo (x += ẋ·dt). En cada update():
+            // (1) con la velocidad/actitud actuales y los comandos calcula las
+            // fuerzas y momentos; (2) divide por masa/inercia -> aceleraciones;
+            // (3) integra -> velocidades y luego posición/actitud; (4) guarda
+            // el estado nuevo. No hace falta entender la física de adentro (es
+            // de otra materia); solo qué pide y qué devuelve.
+            // El solver se queda con una copia de los parámetros; el paso de
+            // integración se fija en su construcción (1/120 s por defecto).
+            dlfdm::AircraftParameters parametros = dlfdm::jettrainer::load_model();
+            dlfdm::FDMSolver fdm(parametros);
 
-                std::set<const Mesh*> mallas;
-                for (const RenderItem& item : conteo) {
-                    mallas.insert(item.mesh);
-                }
-                std::cout << "aeronave : " << conteo.size()
-                          << " piezas con " << mallas.size()
-                          << " mallas distintas" << std::endl;
-            }
-
-            // Cámara orbital + entrada. La cámara arma la proyección inicial
-            // con el tamaño de la ventana; el InputHandler produce los deltas
-            // del mouse.
-            CameraSystem camara(kWindowWidth, kWindowHeight);
+            // Condición inicial de equilibrio (trim): estado Y comandos.
+            // Es un par: el estado va al solver y los comandos al InputHandler.
+            dlfdm::TrimPoint trim = dlfdm::jettrainer::get_trim_condition(
+                dlfdm::jettrainer::TrimCondition::kISA5000TAS150);
+            fdm.setState(trim.state);                 // estado -> solver
+            // los comandos -> InputHandler (antes del loop, si no el avión se
+            // descompensa solo en el primer cuadro)
             InputHandler input;
+            input.set_controls(trim.controls);
+            input.set_limits(parametros);
 
-            // El callback de redimensionado tiene que ser una FUNCIÓN LIBRE
-            // (no un método): GLFW es una librería en C y no entiende objetos
-            // C++. Como la función suelta no puede "ver" a la variable local
-            // `camara`, le colgamos su dirección a la ventana con
-            // glfwSetWindowUserPointer (un "bolsillo" de la ventana). Después,
-            // dentro del callback, glfwGetWindowUserPointer recupera ese
-            // puntero para llamar a set_viewport. Es la respuesta a la
-            // "cuestión a pensar" de la guía.
-            glfwSetWindowUserPointer(window, &camara);
+            std::cout << "aeronave : " << "escena compuesta por primitivas"
+                      << std::endl;
+            std::cout << "FDM      : jet trainer (Roskam 'C'), trim a 5000 m / "
+                      << "150 m/s; dt = " << kFdmDt << " s" << std::endl;
+            std::cout << "teclas   : flechas=cabeceo/alerones, Q/E=timon, "
+                      << "W/S=potencia, ESPACIO=pausa, F=wireframe" << std::endl;
+
+            // --- Cámara orbital (Práctico 05) + input ----------------------
+            CameraSystem camara(kWindowWidth, kWindowHeight);
+
+            // Contexto para las callbacks (cámara + toggles discretos).
+            AppContext ctx;
+            ctx.camara = &camara;
+            glfwSetWindowUserPointer(window, &ctx);
             glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+            glfwSetKeyCallback(window, key_callback);
 
-            // Punto al que mira la cámara: el centro del avión. El modelo
-            // tiene la nariz en el origen y llega hasta x=1, así que su
-            // centro geométrico está en x=0.5.
-            const glm::vec3 objetivo(0.5f, 0.0f, 0.0f);
+            glEnable(GL_DEPTH_TEST);
 
-            glEnable(GL_DEPTH_TEST);   // una vez, antes del loop (caja negra)
+            // =============================================================
+            // GAME LOOP con PASO FIJO + ACUMULADOR (Práctico 06, Parte 1)
+            // =============================================================
+            double antes = glfwGetTime();
+            double acc   = 0.0;
 
-            double tiempo_previo = glfwGetTime();
-
-            // ------------------------------------------------------------------
-            // Bucle principal de renderizado.
-            // ------------------------------------------------------------------
             while (!glfwWindowShouldClose(window)) {
-                processInput(window);
+                glfwPollEvents();
+                processInput(window);   // ESC cierra
 
-                // 1) entrada: el mouse produce deltas (píxeles -> rad).
-                const double tiempo = glfwGetTime();
-                const float dt = static_cast<float>(tiempo - tiempo_previo);
-                tiempo_previo = tiempo;
+                // Dos relojes: el real (frame_dt) y el del modelo (kFdmDt).
+                const double ahora    = glfwGetTime();
+                const double frame_dt = ahora - antes;
+                antes = ahora;
 
-                input.update(window, dt);
+                // La entrada se lee UNA vez por cuadro (afuera del while
+                // interno): mover la cámara/leer teclas es un control continuo
+                // por cuadro, no por paso de simulación.
+                input.update(window, static_cast<float>(frame_dt));
 
-                // 2) cámara: acumula/acota los deltas y recalcula la vista.
-                camara.update(objetivo, glm::vec3(0.0f), input.command());
+                if (!ctx.paused) {
+                    // El tope de 0.25 s corta la divergencia del acumulador:
+                    // si un cuadro tardó muchísimo, en vez de encadenar cada
+                    // vez más pasos (y congelarse) se deja de simular en tiempo
+                    // real a propósito.
+                    acc += std::min(frame_dt, 0.25);
+                    while (acc >= kFdmDt) {
+                        // UN paso de integración (el solver hace la física de
+                        // adentro) con los comandos actuales. Siempre kFdmDt,
+                        // nunca frame_dt: el paso del FDM es fijo.
+                        fdm.update(input.controls());
+                        acc -= kFdmDt;
+                    }
+                }
 
-                // 3) la lista de piezas del avión (modelo ya compuesto).
-                std::vector<RenderItem> items;
-                avion.collect(items);
+                // Una vez por cuadro: leer el estado ya integrado (posición NED
+                // + actitud φ/θ/ψ) y llevarlo a coordenadas de la escena.
+                const FlightData flight = to_world(fdm.getState());
+
+                // El avión se ubica en la escena y la cámara lo orbita (su
+                // objetivo sigue la posición del avión).
+                avion.update(flight);
+                camara.update(flight.position,
+                              glm::vec3(flight.theta, flight.phi, flight.psi),
+                              input.camera_cmd());
 
                 glClearColor(51.0f / 256.0f, 55.0f / 256.0f, 76.0f / 256.0f, 1.0f);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+                // Comando discreto: alternar relleno/wireframe.
+                glPolygonMode(GL_FRONT_AND_BACK,
+                              ctx.wireframe ? GL_LINE : GL_FILL);
 
                 shader.use();
                 shader.set_uniform(loc_projection, camara.data().projection);
                 shader.set_uniform(loc_view, camara.data().view);
 
-                // Etapa 4: dibujar. Cada pieza: cambiar uColor + uModel y
-                // emitir el draw call.
+                std::vector<RenderItem> items;
+                avion.collect(items);
+
                 for (const RenderItem& item : items) {
                     shader.set_uniform(loc_color, item.color);
                     shader.set_uniform(loc_model, item.model);
@@ -216,13 +255,11 @@ int main()
                     glDrawElements(GL_TRIANGLES, item.mesh->count(),
                                    GL_UNSIGNED_INT, nullptr);
                 }
-
-                glBindVertexArray(0);   // desactivar, para no estorbar
+                glBindVertexArray(0);
 
                 glfwSwapBuffers(window);
-                glfwPollEvents();
             }
-        }   // <-- acá se destruyen shader, aeronave y cámara
+        }
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         glfwDestroyWindow(window);
@@ -247,30 +284,42 @@ void error_callback(int error, const char *description){
 // -----------------------------------------------------------------------------
 // framebuffer_size_callback
 // -----------------------------------------------------------------------------
-// GLFW llama a esta función cada vez que el usuario cambia el tamaño de la
-// ventana, con el nuevo ancho/alto EN PÍXELES. El "framebuffer" es la grilla
-// de píxeles en la placa de video donde OpenGL dibuja (no es la ventana del
-// SO: pueden diferir, p. ej. en pantallas HiDPI). Hay que hacer DOS cosas
-// distintas, y las dos hacen falta:
-//   1. glViewport: en QUÉ rectángulo de píxeles se dibuja. Sin esto se dibuja
-//      en el rectángulo viejo (la imagen no llena la nueva ventana).
-//   2. set_viewport: recalcular la proyección con el nuevo aspect. Sin esto
-//      la escena se ESTIRA (el frustum no coincide con la nueva proporción).
 void framebuffer_size_callback(GLFWwindow* window, int width, int height){
     glViewport(0, 0, width, height);   // 1) el rectángulo de píxeles donde se dibuja
 
-    // 2) Recalcular la proyección. Como esta es una función libre (GLFW no
-    // entiende métodos), no puede ver el objeto `camara`: recupera el puntero
-    // que main dejó con glfwSetWindowUserPointer y lo castea de vuelta a
-    // CameraSystem* para llamar a set_viewport.
-    void* p = glfwGetWindowUserPointer(window);
-    if (p != nullptr) {
-        static_cast<CameraSystem*>(p)->set_viewport(width, height);
+    // 2) Recalcular la proyección. La función es libre: recupera el contexto
+    // que main dejó en el user pointer de la ventana.
+    AppContext* ctx = static_cast<AppContext*>(glfwGetWindowUserPointer(window));
+    if (ctx != nullptr && ctx->camara != nullptr) {
+        ctx->camara->set_viewport(width, height);
     }
 }
 
 // -----------------------------------------------------------------------------
-// processInput
+// key_callback — comandos DISCRETOS (eventos), Práctico 06
+// -----------------------------------------------------------------------------
+// GLFW llama a esta función en cada evento de teclado y YA entrega el flanco:
+// distingue GLFW_PRESS de GLFW_REPEAT. Por eso se filtra solo PRESS (si no, un
+// toggle alternaría decenas de veces por segundo mientras se mantiene la tecla).
+void key_callback(GLFWwindow* window, int key, [[maybe_unused]] int scancode,
+                  int action, [[maybe_unused]] int mods){
+    if (action != GLFW_PRESS) {
+        return;
+    }
+    AppContext* ctx = static_cast<AppContext*>(glfwGetWindowUserPointer(window));
+    if (ctx == nullptr) {
+        return;
+    }
+    if (key == GLFW_KEY_SPACE) {
+        ctx->paused = !ctx->paused;         // pausa/reanuda la simulación
+    }
+    if (key == GLFW_KEY_F) {
+        ctx->wireframe = !ctx->wireframe;   // alterna relleno/wireframe
+    }
+}
+
+// -----------------------------------------------------------------------------
+// processInput — ESC para cerrar
 // -----------------------------------------------------------------------------
 void processInput(GLFWwindow *window){
     if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS){

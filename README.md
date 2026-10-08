@@ -1,4 +1,4 @@
-# CGyAV — Proyecto OpenGL (template + Prácticos 01, 02, 03, 04 y 05)
+# CGyAV — Proyecto OpenGL (template + Prácticos 01, 02, 03, 04, 05 y 06)
 
 Proyecto base de **Computación gráfica y ambientes virtuales (0494)** — CRUC-IUA.
 Template de aplicación OpenGL moderna (core profile 4.6) con GLFW + GLAD sobre el
@@ -22,6 +22,11 @@ que se desarrollan los prácticos del proyecto integrador
   reemplaza por matrices de vista y proyección en perspectiva (`glm::lookAt` +
   `glm::perspective`), con una cámara orbital (`CameraSystem`) controlable con
   el mouse (`InputHandler`) y proyección recalculada al redimensionar.
+- **Práctico 06** — *FDM, game loop e input*: se integra la librería de
+  dinámica de vuelo `dlfdm` (`libs/dlfdm`), se sincronizan los dos relojes con
+  un **game loop de paso fijo + acumulador**, se amplía `InputHandler` con
+  **teclado** (cuatro mandos con rampas + comandos discretos por callback) y se
+  lleva la salida del FDM a la escena con `to_world()` (NED → escena).
 
 ---
 
@@ -37,10 +42,13 @@ que se desarrollan los prácticos del proyecto integrador
 
 ```bash
 make            # compila en build/ y genera bin/ogl-app
-./bin/ogl-app   # escena con la aeronave y cámara orbital en perspectiva
+./bin/ogl-app   # aeronave volando por el FDM, cámara orbital
 ```
 
-- `ESC` cierra la aplicación.
+- `ESC` cierra.
+- **Teclado**: flechas = cabeceo/alerones; `Q`/`E` = timón; `W`/`S` = potencia;
+  `ESPACIO` = pausa; `F` = wireframe. (La tecla representa el bastón: ↑ baja la
+  nariz, como en un avión real.)
 - **Mouse**: botón izquierdo arrastrado = orbitar (yaw/pitch); botón derecho
   arrastrado (vertical) = acercar/alejar.
 - La consola muestra versión de driver/vendor/GLSL al arrancar.
@@ -54,8 +62,10 @@ make            # compila en build/ y genera bin/ogl-app
 ```
 ├── assets/
 │   └── shaders/            # fuentes GLSL externos (solid.vs / solid.fs, triangle.*)
+├── libs/
+│   └── dlfdm/              # librería de dinámica de vuelo (FDM, Práctico 06)
 ├── src/
-│   ├── main.cpp            # app: aeronave + cámara orbital (sin recursos propios de GL)
+│   ├── main.cpp            # app: game loop (paso fijo) + FDM + cámara
 │   └── core/
 │       ├── MeshData.h          # tupla Vertex {position, normal, tex_coords} (glm)
 │       ├── Mesh.h/.cpp         # dueño del VAO/VBO/EBO (DSA 4.5, 3 atributos)
@@ -66,7 +76,8 @@ make            # compila en build/ y genera bin/ogl-app
 │       ├── CameraData.h        # par de matrices {view, projection} (Práctico 05)
 │       ├── CameraCommand.h     # deltas de órbita {yaw, pitch, distancia}
 │       ├── CameraSystem.h/.cpp # cámara orbital: lookAt + perspective
-│       ├── InputHandler.h/.cpp # mouse por polling -> CameraCommand
+│       ├── FlightData.h        # datos de vuelo compartidos + to_world() (P06)
+│       ├── InputHandler.h/.cpp # mouse + teclado -> cámara y comandos del FDM
 │       ├── ResourceManager.h   # cache de recursos (C++ puro, sin OpenGL)
 │       └── ResourceManager.cpp
 ├── tests/
@@ -82,6 +93,7 @@ make            # compila en build/ y genera bin/ogl-app
 ├── Practico03-Decisiones.md       # apuntes: tupla, paramétricas, uniforms, matriz de modelo
 ├── Practico04-Decisiones.md       # apuntes: despiece de la aeronave, módulo Aircraft, pose
 ├── Practico05-Decisiones.md       # apuntes: cámara orbital, perspectiva, input por mouse
+├── Practico06-Decisiones.md       # apuntes: FDM, game loop de paso fijo, teclado, to_world
 └── Arquitectura-Proyecto.md       # arquitectura en capas (destino del proyecto, para más adelante)
 ```
 
@@ -207,11 +219,36 @@ perspectiva, y se agrega una cámara orbital controlable con el mouse.
 - La proyección se recalcula al redimensionar (callback con `glfwSetWindowUserPointer`).
   Ver `Practico05-Decisiones.md`.
 
+## FDM, game loop e input (Práctico 06)
+
+La escena ahora la mueve un **modelo de dinámica de vuelo** (`dlfdm`), con un
+**game loop de paso fijo** y control por **teclado**.
+
+| Pieza | Cambio |
+|---|---|
+| `libs/dlfdm` (nuevo) | librería del FDM (se integra con su `dlfdm.mk`, como glad) |
+| `FlightData.h` (nuevo) | datos de vuelo compartidos (posición de escena + φ/θ/ψ) y `to_world()` (NED → escena) |
+| `Aircraft` | `update(FlightData)` compone la pose con los ejes/sentidos adaptados al FDM |
+| `InputHandler` | se amplía con **teclado**: los 4 mandos por polling con rampas + `controls()`/`set_controls()`; el mouse sigue dando el `CameraCommand` |
+| `main.cpp` | game loop con **acumulador** (paso fijo `dt=1/120`, tope 0.25 s), FDM, `to_world()`, callbacks de pausa/wireframe |
+
+- **Game loop**: `frame_dt` se acumula (con tope) y se consume a pasos enteros
+  de `dt`; el resto queda para el cuadro siguiente (`simulado + acc = reloj`).
+- **FDM**: `fdm.update()` adentro del while de paso fijo; `getState()` una vez
+  por cuadro. Arranca desde el **trim** (estado + comandos) a 5000 m / 150 m/s.
+- **`to_world()`**: NED → escena (`x=−norte, y=este, z=−abajo`); la actitud se
+  compone con `T·Rz(−ψ)·Ry(θ)·R_{eje nariz}(φ)` (verificado: θ>0 sube la nariz,
+  φ>0 baja el ala derecha, ψ>0 gira a la derecha).
+- **Controles**: flechas = cabeceo/alerones, Q/E = timón, W/S = potencia,
+  ESPACIO = pausa, F = wireframe. La tecla representa el bastón (convención
+  registrada). Ver `Practico06-Decisiones.md`.
+
 ## Documentación de los prácticos
 
 - [`Arquitectura-Proyecto.md`](Arquitectura-Proyecto.md) — arquitectura en capas
-  del proyecto (aplicación / sistemas / datos), destino del simulador; se aplica
-  cuando lleguen la cámara y el FDM.
+  del proyecto (aplicación / sistemas / datos), destino del simulador.
+- [`Practico06-Decisiones.md`](Practico06-Decisiones.md) — FDM, game loop de
+  paso fijo con acumulador, teclado en `InputHandler` y `to_world()`.
 - [`Practico05-Decisiones.md`](Practico05-Decisiones.md) — cámara orbital,
   proyección en perspectiva, manejo del mouse y callback de redimensionado.
 - [`Practico04-Decisiones.md`](Practico04-Decisiones.md) — despiece de la
@@ -239,7 +276,7 @@ perspectiva, y se agrega una cámara orbital controlable con el mouse.
 
 Simulador de acrobacias aéreas (entrega final con defensa oral). Módulos por clase:
 shaders ✔ → primitivas 3D/Mesh/Shader ✔ → matrices ✔ (matriz de modelo) → aeronave ✔ →
-cámara ✔ → FDM/game loop → terreno/HUD/texturas → circuito/maniobras/puntuación.
+cámara ✔ → FDM/game loop/input ✔ → terreno/HUD/texturas → circuito/maniobras/puntuación.
 
 Requerimientos mínimos: escenario 3D, aeronave con actitud correcta, HUD (3
 instrumentos), control vía teclado/joystick con FDM provisto, 3 cámaras, circuito

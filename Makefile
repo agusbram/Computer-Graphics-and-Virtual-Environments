@@ -7,10 +7,16 @@
 GLAD_DIR = ./third_party/glad
 include $(GLAD_DIR)/glad.mk
 
+# dlfdm: modelo de dinamica de vuelo (Practico 06), integrado como libreria.
+# Sus fuentes e includes se declaran en su propio .mk (una sola fuente de verdad).
+DLFDM_DIR = ./libs/dlfdm
+include $(DLFDM_DIR)/dlfdm.mk
+
 # ------------------------------------------------------------------------------
 # Configurar includes paths
 INC_DIRS = \
     $(GLAD_INC_DIRS) \
+    $(DLFDM_INC_DIRS) \
     ./src
 
 # ------------------------------------------------------------------------------
@@ -24,6 +30,7 @@ INC_DIRS = \
 #    ./src/input
 LIB_DIRS = \
     $(GLAD_LIB_DIRS) \
+    $(DLFDM_LIB_DIRS) \
     ./src/core
 
 # ------------------------------------------------------------------------------
@@ -40,9 +47,9 @@ PROJECT_NAME = ogl-app
 # ------------------------------------------------------------------------------
 # Configurar linkeo de librerías
 ifeq ($(OS), Windows_NT)
-        PROJECT_LDLIBS = -L/mingw64/lib -lglfw3 -lopengl32 -lgdi32 -lpthread
+        PROJECT_LDLIBS = -L/mingw64/lib -lglfw3 -lopengl32 -lgdi32 -lpthread -lm
 else
-	PROJECT_LDLIBS = -lglfw -lGL -lX11 -lXrandr -ldl -lpthread
+	PROJECT_LDLIBS = -lglfw -lGL -lX11 -lXrandr -ldl -lpthread -lm
 endif
 
 # ------------------------------------------------------------------------------

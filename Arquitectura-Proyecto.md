@@ -110,7 +110,9 @@ La arquitectura es el **destino**; el código actual ya da pasos hacia ella:
   (cámara orbital, `CameraData`/`CameraCommand`) e `InputHandler` (mouse). El
   `Renderer` real y las "3 vistas" del sistema de cámaras quedan para más
   adelante.
-- **FDM / game loop**: `FlightData` como POD compartido + `FDM`.
+- **FDM / game loop** ✔ — ya implementado en el Práctico 06: la librería
+  `dlfdm` (FDM, caja negra), `InputHandler` con teclado, `FlightData` como
+  estructura compartida y el game loop de paso fijo en `main`.
 - **HUD / terreno / texturas**: los módulos `HUD` y `Scene` completos.
 - **Circuito / maniobras**: `CircuitState` + `GameLogic`.
 

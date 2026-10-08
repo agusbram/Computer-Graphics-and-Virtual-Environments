@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Aircraft.h — modelo de la aeronave (Práctico 04)
+// Aircraft.h — modelo de la aeronave (Prácticos 04 y 06)
 //
 // La aeronave es UNA composición de primitivas que forman un solo objeto
 // (a diferencia de la escena del Práctico 03, donde cada pieza era un objeto
@@ -30,7 +30,10 @@
 //      desde un archivo (.obj) sin tocar el resto del programa.
 //   2. Ninguna pieza simétrica usa escalado negativo (rompe el winding):
 //      el ala derecha es la MISMA malla con la traslación al lado opuesto.
-//   3. update() no toca piezas ni matrices locales: solo arma pose_.
+//   3. update() no toca piezas ni matrices locales: solo arma pose_. Desde el
+//      Práctico 06 recibe un FlightData (posición de escena + actitud del FDM,
+//      ya pasados por to_world) y compone la pose con los ejes y sentidos
+//      adaptados a este modelo: ver el detalle en el .cpp (update()).
 //   4. collect() entrega RenderItems listos para dibujar: el resto del
 //      programa no necesita saber cuántas piezas hay ni cómo están armadas.
 // -----------------------------------------------------------------------------
@@ -42,6 +45,7 @@
 
 #include <glm/glm.hpp>
 
+#include "core/FlightData.h"
 #include "core/Mesh.h"
 #include "core/RenderItem.h"
 
@@ -51,12 +55,9 @@ public:
     // y sube las mallas a la GPU. No llamar por cuadro.
     void init();
 
-    // Recalcula SOLO la pose (posición + orientación del avión en el mundo).
-    // Los ángulos de actitud vienen en RADIANES:
-    //   angulos.x = cabeceo (pitch)  alrededor del eje Y (lateral)
-    //   angulos.y = guiñada (yaw)    alrededor del eje Z (vertical)
-    //   angulos.z = rolido  (roll)   alrededor del eje X (longitudinal)
-    void update(const glm::vec3& pos, const glm::vec3& angulos);
+    // Recalcula SOLO la pose a partir de los datos de vuelo (posición en la
+    // ESCENA + actitud phi/theta/psi del FDM, ya pasados por to_world).
+    void update(const FlightData& flight);
 
     // Agrega a items un RenderItem por pieza, con la transformación ya
     // compuesta (pose * local) y lista para dibujar.

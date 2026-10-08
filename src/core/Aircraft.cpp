@@ -131,25 +131,28 @@ void Aircraft::init()
     punto_ref_ = glm::vec3(0.438f, 0.0f, 0.0f);
 }
 
-void Aircraft::update(const glm::vec3& pos, const glm::vec3& angulos)
+void Aircraft::update(const FlightData& flight)
 {
-    // Mpose = T(pos) * Rx(rolido) * Ry(cabeceo) * Rz(guiñada) * T(-ref)
-    // Los tres ángulos de ACTITUD (rolido/cabeceo/guiñada) definen, junto con
-    // la posición, la orientación del avión en el mundo (su "pose"):
-    //   - cabeceo (pitch): sube/baja la NARIZ, alrededor del eje Y (lateral)
-    //   - rolido  (roll):  inclina el avión de lado, alrededor del eje X
-    //     (longitudinal, nariz->cola)
-    //   - guiñada (yaw):   gira la proa a izq/der, alrededor del eje Z (vertical)
-    // Hoy solo se usa el cabeceo (verificación); roll/yaw quedan para el FDM.
-    // Lo escrito más a la derecha se aplica primero: se lleva el punto de
-    // referencia al origen, se rota y por último se traslada a la posición
-    // del avión en el mundo. Sin el T(-ref) el avión giraría "en arco"
-    // alrededor del origen del modelo (la nariz).
+    // Pose del avión a partir de los datos de vuelo (Práctico 06).
+    // Los ejes y sentidos se adaptan al MODELO y a la ESCENA (Z arriba,
+    // nariz -X, ala derecha +Y) — verificado por cálculo:
+    //   - guiñada (psi, alrededor de la vertical Z): se niega psi para que
+    //     psi>0 gire la nariz hacia la derecha (convención aeronáutica).
+    //   - cabeceo (theta, alrededor del ala Y): theta>0 sube la nariz.
+    //   - alabeo  (phi, alrededor del eje de la nariz -X): phi>0 baja el ala
+    //     derecha.
+    // El orden de composición hereda el 3-2-1 del FDM (psi -> theta -> phi):
+    // en glm (post-multiplica) eso es Rz * Ry * Rx_nala, con la de más a la
+    // derecha aplicada primero.
     glm::mat4 pose = glm::mat4(1.0f);
-    pose = glm::translate(pose, pos);
-    pose = glm::rotate(pose, angulos.z, glm::vec3(1.0f, 0.0f, 0.0f));  // rolido
-    pose = glm::rotate(pose, angulos.x, glm::vec3(0.0f, 1.0f, 0.0f));  // cabeceo
-    pose = glm::rotate(pose, angulos.y, glm::vec3(0.0f, 0.0f, 1.0f));  // guiñada
+    pose = glm::translate(pose, flight.position);
+    pose = glm::rotate(pose, -flight.psi,   glm::vec3(0.0f, 0.0f, 1.0f)); // guiñada
+    pose = glm::rotate(pose,  flight.theta, glm::vec3(0.0f, 1.0f, 0.0f)); // cabeceo
+    pose = glm::rotate(pose,  flight.phi,   glm::vec3(-1.0f, 0.0f, 0.0f)); // alabeo
+
+    // El FDM da la posición del centro de gravedad: se lo hace coincidir con
+    // el origen del modelo (punto_ref_) para que la rotación sea alrededor de
+    // él (mismo T(-ref) del Práctico 04).
     pose = glm::translate(pose, -punto_ref_);
     pose_ = pose;
 }
