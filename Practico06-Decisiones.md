@@ -210,6 +210,84 @@ se escaló nada.
 - Flechas = cabeceo/alerones; `Q`/`E` = timón; `W`/`S` = potencia.
 - Mouse: botón izquierdo = orbitar la cámara; derecho = zoom.
 
+## Calidad de imagen y precisión (dos problemas al mover el avión)
+
+Al mover el avión aparecían artefactos en pantalla. Eran **dos causas distintas**
+que se veían parecidas ("cuadraditos" que empeoraban con el movimiento):
+
+### 1. Aliasing → antialiasing (MSAA)
+
+Sin antialiasing, los **bordes** salen **escalonados** (pixelados). Al moverse o
+rotar, esos escaloncitos **titilan** (*shimmer* / aliasing temporal); cuanta más
+maniobra, más se notan. Es un problema de **muestreo**: el borde de un triángulo
+cae "entre píxeles" y cada píxel se pinta de un solo color.
+
+**Solución — MSAA (_Multi-Sample Anti-Aliasing_) de 4 muestras:**
+
+```cpp
+glfwWindowHint(GLFW_SAMPLES, 4);   // antes de crear la ventana
+...
+glEnable(GL_MULTISAMPLE);
+```
+
+El framebuffer se crea con **4 muestras por píxel**; en los bordes, OpenGL toma
+el color de varias muestras y lo **promedia** → contornos suaves y sin titileo.
+(Se confirmó por consola: `MSAA : 4 muestras/pixel`.) Solo cambia calidad de
+imagen; no toca geometría ni lógica.
+
+### 2. Z-fighting por precisión → origen flotante
+
+Síntoma: en las **uniones entre piezas** (nariz-fuselaje, ala-fuselage, cola-
+empenaje) aparecía un **moteado/punteado que parpadeaba** al mover el avión, y
+**empeoraba cuanto más se alejaba**.
+
+**Causa (el concepto).** El FDM entrega la posición en **metros** y el avión está
+a **~5000 m** (y se va alejando volando a 150 m/s), pero la cámara lo sigue a
+**~5 unidades**. Con `float` (≈7 dígitos significativos), cuanto más grande es un
+número, más grueso su **ULP** (la mínima diferencia representable): a 5000 m el
+paso es ~0,0005; a 9000 m, peor. La matriz de vista resta la posición de la
+cámara (~5000) a la del mundo (~5000) para obtener una distancia chica (~5):
+**restar dos números grandes para obtener uno chico pierde precisión**
+(*cancelación catastrófica*). Ese error de precisión contamina el **valor de
+profundidad** (z), que pasa a tener más error del que puede resolver el
+*z-buffer*. Entonces, en las juntas —donde dos superficies están **casi a la
+misma profundidad**— las piezas compiten por el píxel y el ganador **cambia al
+rotar/moverse** → el píxel parpadea entre los colores de ambas piezas
+(**z-fighting**). Es la misma familia de problemas de precisión del *z-buffer*
+que menciona la Unidad VIII (y por la que se recomienda no poner un `near` muy
+chico).
+
+**Solución — ORIGEN FLOTANTE (_floating origin_).** En vez de renderizar con las
+coordenadas enormes, se renderiza **relativo a un punto cercano a la cámara**.
+
+```cpp
+FlightData flight = to_world(fdm.getState());
+// render relativo al propio avión (que es lo que mira la cámara):
+flight.position = glm::vec3(0.0f);
+avion.update(flight);
+camara.update(glm::vec3(0.0f), angulos, input.camera_cmd());
+```
+
+Como la cámara **sigue** al avión, la **geometría relativa** (qué se ve y desde
+dónde) es **idéntica**; lo único que cambia es que ahora las coordenadas que
+llegan a la GPU son **chicas** (~0 a 1) en vez de miles. Con eso la profundidad
+se calcula **exacta** y desaparece el z-fighting. El FDM conserva su **posición
+real** (en metros NED) para la lógica y para el futuro terreno.
+
+> **Para la defensa:** el _floating origin_ es la técnica estándar para escenas
+> grandes (terreno, mundo abierto): **todo se renderiza relativo a la cámara
+> (o a un punto de referencia cercano)**, no en coordenadas absolutas del mundo.
+> Acá se usó el avión como referencia porque es lo único que hay en la escena y
+> la cámara lo orbita; cuando llegue el terreno, la referencia pasa a ser la
+> posición de la cámara.
+
+### Resumen
+
+| Artefacto | Causa | Solución |
+|---|---|---|
+| Bordes escalonados que titilan | Aliasing (sin antialiasing) | **MSAA 4×** |
+| Moteado en las juntas que parpadea y empeora al alejarse | Z-fighting por pérdida de precisión de `float` con coordenadas grandes | **Origen flotante** (renderizar relativo a la cámara/avión) |
+
 ---
 
 ## Arquitectura

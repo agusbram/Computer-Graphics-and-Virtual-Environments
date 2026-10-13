@@ -95,6 +95,9 @@ int main()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, kGLVerMajor);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, kGLVerMinor);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    // MSAA: suaviza los bordes de las figuras (sin esto titilan/escalonan al
+    // moverse). El framebuffer se crea con 4 muestras por pixel.
+    glfwWindowHint(GLFW_SAMPLES, 4);
 
     GLFWwindow* window = glfwCreateWindow(kWindowWidth,
                                           kWindowHeight,
@@ -175,6 +178,12 @@ int main()
                       << "150 m/s; dt = " << kFdmDt << " s" << std::endl;
             std::cout << "teclas   : flechas=cabeceo/alerones, Q/E=timon, "
                       << "W/S=potencia, ESPACIO=pausa, F=wireframe" << std::endl;
+            {
+                GLint muestras = 0;
+                glGetIntegerv(GL_SAMPLES, &muestras);
+                std::cout << "MSAA     : " << muestras
+                          << " muestras/pixel (antialiasing)" << std::endl;
+            }
 
             // --- Cámara orbital (Práctico 05) + input ----------------------
             CameraSystem camara(kWindowWidth, kWindowHeight);
@@ -187,6 +196,7 @@ int main()
             glfwSetKeyCallback(window, key_callback);
 
             glEnable(GL_DEPTH_TEST);
+            glEnable(GL_MULTISAMPLE);   // activa el antialiasing (MSAA) pedido arriba
 
             // =============================================================
             // GAME LOOP con PASO FIJO + ACUMULADOR (Práctico 06, Parte 1)
@@ -225,12 +235,29 @@ int main()
 
                 // Una vez por cuadro: leer el estado ya integrado (posición NED
                 // + actitud φ/θ/ψ) y llevarlo a coordenadas de la escena.
-                const FlightData flight = to_world(fdm.getState());
+                FlightData flight = to_world(fdm.getState());
 
-                // El avión se ubica en la escena y la cámara lo orbita (su
-                // objetivo sigue la posición del avión).
+                // ORIGEN FLOTANTE ("floating origin"): el FDM trabaja en metros
+                // y el avión está a ~5000 m (y se aleja volando), pero la cámara
+                // lo sigue a ~5 unidades. Con `float` (≈7 dígitos), números
+                // grandes tienen un ULP grande; restar la posición de la cámara
+                // (~5000) a la del mundo (~5000) para obtener una distancia
+                // chica (~5) PIERDE PRECISIÓN (cancelación catastrófica) y esa
+                // imprecisión contamina la PROFUNDIDAD (z) -> Z-FIGHTING: en las
+                // uniones entre piezas (casi a la misma profundidad) el pixel
+                // parpadea entre las dos y empeora cuanto más se aleja.
+                // Solución: renderizar RELATIVO a un punto cercano a la cámara.
+                // Acá la referencia es el propio avión (lo único de la escena y
+                // lo que la cámara mira): mismo resultado visual, coordenadas
+                // chicas -> profundidad exacta. Cuando llegue el terreno, la
+                // referencia será la posición de la cámara. El FDM conserva su
+                // posición real (NED, metros) para la lógica y el mundo.
+                flight.position = glm::vec3(0.0f);
+
+                // El avión se ubica en la escena y la cámara lo orbita (objetivo
+                // en el origen, donde quedó el avión).
                 avion.update(flight);
-                camara.update(flight.position,
+                camara.update(glm::vec3(0.0f),
                               glm::vec3(flight.theta, flight.phi, flight.psi),
                               input.camera_cmd());
 
