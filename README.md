@@ -1,4 +1,4 @@
-# CGyAV — Proyecto OpenGL (template + Prácticos 01, 02, 03, 04, 05 y 06)
+# CGyAV — Proyecto OpenGL (template + Prácticos 01 a 07)
 
 Proyecto base de **Computación gráfica y ambientes virtuales (0494)** — CRUC-IUA.
 Template de aplicación OpenGL moderna (core profile 4.6) con GLFW + GLAD sobre el
@@ -27,6 +27,11 @@ que se desarrollan los prácticos del proyecto integrador
   un **game loop de paso fijo + acumulador**, se amplía `InputHandler` con
   **teclado** (cuatro mandos con rampas + comandos discretos por callback) y se
   lleva la salida del FDM a la escena con `to_world()` (NED → escena).
+- **Práctico 07** — *Terreno procedural*: malla de terreno indexada (N×N celdas)
+  generada a partir de un *heightmap* de **ruido procedural** (FastNoiseLite),
+  con **normales** por diferencias centradas y **eliminación de superficies
+  ocultas** (z-buffer + recorte de cara trasera); **terreno infinito** (la
+  ventana sigue al avión) y modo **malla de alambre** (tecla F).
 
 ---
 
@@ -41,8 +46,8 @@ que se desarrollan los prácticos del proyecto integrador
 ## Compilación y ejecución
 
 ```bash
-make            # compila en build/ y genera bin/ogl-app
-./bin/ogl-app   # aeronave volando por el FDM, cámara orbital
+make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNoiseLite)
+./bin/ogl-app   # aeronave volando por el FDM sobre el terreno procedural
 ```
 
 - `ESC` cierra.
@@ -65,7 +70,7 @@ make            # compila en build/ y genera bin/ogl-app
 ├── libs/
 │   └── dlfdm/              # librería de dinámica de vuelo (FDM, Práctico 06)
 ├── src/
-│   ├── main.cpp            # app: game loop (paso fijo) + FDM + cámara
+│   ├── main.cpp            # app: game loop (paso fijo) + FDM + terreno + cámara
 │   └── core/
 │       ├── MeshData.h          # tupla Vertex {position, normal, tex_coords} (glm)
 │       ├── Mesh.h/.cpp         # dueño del VAO/VBO/EBO (DSA 4.5, 3 atributos)
@@ -78,12 +83,15 @@ make            # compila en build/ y genera bin/ogl-app
 │       ├── CameraSystem.h/.cpp # cámara orbital: lookAt + perspective
 │       ├── FlightData.h        # datos de vuelo compartidos + to_world() (P06)
 │       ├── InputHandler.h/.cpp # mouse + teclado -> cámara y comandos del FDM
+│       ├── Terrain.h/.cpp      # terreno procedural + alturas (ruido) + ventana infinita (P07)
 │       ├── ResourceManager.h   # cache de recursos (C++ puro, sin OpenGL)
 │       └── ResourceManager.cpp
 ├── tests/
 │   ├── main_test_rm.cpp        # test standalone del ResourceManager
 │   └── main_test_primitives.cpp# verificación de winding por producto vectorial
-├── third_party/glad/       # cargador de funciones OpenGL
+├── third_party/
+│   ├── glad/               # cargador de funciones OpenGL
+│   └── FastNoiseLite/      # ruido procedural para el heightmap (Práctico 07)
 ├── Makefile                # configuración del proyecto (usa Makefile.master)
 ├── Clinica-Practico-01.md          # apuntes: clínica de debugging (3 roturas)
 ├── ResourceManager-Practico-01.md  # apuntes: diseño y funcionamiento del módulo
@@ -94,6 +102,8 @@ make            # compila en build/ y genera bin/ogl-app
 ├── Practico04-Decisiones.md       # apuntes: despiece de la aeronave, módulo Aircraft, pose
 ├── Practico05-Decisiones.md       # apuntes: cámara orbital, perspectiva, input por mouse
 ├── Practico06-Decisiones.md       # apuntes: FDM, game loop de paso fijo, teclado, to_world
+├── Practico07-Decisiones.md       # apuntes: terreno procedural (heightmap, culling, ventana infinita)
+├── Practico07-Consultas.md        # FAQ del terreno: mitad, esquina, template, dueño único, etc.
 └── Arquitectura-Proyecto.md       # arquitectura en capas (destino del proyecto, para más adelante)
 ```
 
@@ -243,10 +253,46 @@ La escena ahora la mueve un **modelo de dinámica de vuelo** (`dlfdm`), con un
   ESPACIO = pausa, F = wireframe. La tecla representa el bastón (convención
   registrada). Ver `Practico06-Decisiones.md`.
 
+## Terreno procedural (Práctico 07)
+
+Se agrega el **terreno** por el cual moverse: una malla poligonal con relieve
+generada a partir de un *heightmap* de ruido procedural.
+
+| Pieza | Cambio |
+|---|---|
+| `third_party/FastNoiseLite` (nuevo) | header del ruido procedural (Perlin + octavas) para el heightmap |
+| `Terrain.h/.cpp` (nuevo) | módulo del terreno: `generar_malla_terreno()` (función libre), `Alturas` (fuente desacoplada) y la clase `Terrain` con la ventana infinita |
+| `main.cpp` | crea el terreno, activa **`GL_CULL_FACE`**, lo dibuja relativo al avión y le pasa la posición del FDM |
+
+- **Malla indexada** de N×N celdas (N+1 vértices por lado): N=200 → 40.401
+  vértices y 80.000 triángulos (4 mallas y 7 piezas del avión vs 1 malla del
+  terreno).
+- **Normales** por diferencias centradas (para la iluminación, Unidad IX).
+- **Eliminación de superficies ocultas**: `GL_DEPTH_TEST` + `GL_CULL_FACE`
+  (recorte de cara trasera por *winding*). La escena es **Z-arriba**, así que el
+  orden de índices se invirtió respecto de la guía (que usa Y-arriba) para que
+  las caras miren hacia +Z.
+- **Escala** (decisión): 1 unidad de escena = 10 m; terreno de 5 km. El terreno
+  está a una **altitud fija** (no sigue al avión en vertical), a ~15 u (~150 m)
+  por debajo de la altitud de trim: el avión vuela **bajo** y, con el elevador,
+  puede descender hasta tocarlo.
+- **Terreno infinito** (opcional): la malla es una ventana que sigue al avión a
+  saltos de celda (solo se recalculan las alturas). **Modo alambre** con `F`.
+  Ver `Practico07-Decisiones.md`.
+
+> **Build**: el `Makefile` no recompila al cambiar un encabezado → tras editar un
+> `.h` hay que hacer **`make clean && make`**.
+
 ## Documentación de los prácticos
 
 - [`Arquitectura-Proyecto.md`](Arquitectura-Proyecto.md) — arquitectura en capas
   del proyecto (aplicación / sistemas / datos), destino del simulador.
+- [`Practico07-Decisiones.md`](Practico07-Decisiones.md) — terreno procedural:
+  malla indexada, heightmap por ruido, normales, recorte de cara trasera (winding),
+  ventana infinita (terreno infinito) y escala.
+- [`Practico07-Consultas.md`](Practico07-Consultas.md) — FAQ del terreno: `mitad_`,
+  `esquina()`, el template de la fuente de alturas, dueño único, cada miembro,
+  `init()`/`update()`/`collect()`, origen flotante y el game loop.
 - [`Practico06-Decisiones.md`](Practico06-Decisiones.md) — FDM, game loop de
   paso fijo con acumulador, teclado en `InputHandler` y `to_world()`.
 - [`Practico05-Decisiones.md`](Practico05-Decisiones.md) — cámara orbital,
@@ -276,7 +322,7 @@ La escena ahora la mueve un **modelo de dinámica de vuelo** (`dlfdm`), con un
 
 Simulador de acrobacias aéreas (entrega final con defensa oral). Módulos por clase:
 shaders ✔ → primitivas 3D/Mesh/Shader ✔ → matrices ✔ (matriz de modelo) → aeronave ✔ →
-cámara ✔ → FDM/game loop/input ✔ → terreno/HUD/texturas → circuito/maniobras/puntuación.
+cámara ✔ → FDM/game loop/input ✔ → terreno ✔ → HUD/texturas → circuito/maniobras/puntuación.
 
 Requerimientos mínimos: escenario 3D, aeronave con actitud correcta, HUD (3
 instrumentos), control vía teclado/joystick con FDM provisto, 3 cámaras, circuito

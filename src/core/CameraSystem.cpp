@@ -23,10 +23,11 @@ namespace {
 //     cambio de ancho).
 //   - near/far: planos de recorte. near no debe ser muy chico (precisión del
 //     z-buffer, Unidad VIII). La recomendación es "near tan lejos como se
-//     pueda sin eliminar lo que hace falta ver".
+//     pueda sin eliminar lo que hace falta ver". Desde el Práctico 07 hay
+//     terreno (mide ~500 unidades de escena): far se agranda para verlo.
 constexpr float kFovyRad = 0.785398163f;   // 45° (glm::radians(45.0f))
-constexpr float kNear    = 0.1f;
-constexpr float kFar     = 100.0f;
+constexpr float kNear    = 0.5f;
+constexpr float kFar     = 3000.0f;
 
 // Límites del estado de la órbita.
 constexpr float kPitchMax = 1.413716694f;  // 0.9 * pi/2 (~81°)

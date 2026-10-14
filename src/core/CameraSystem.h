@@ -68,9 +68,9 @@ public:
 private:
     // ESTADO de la órbita: los tres números que describen dónde está la
     // cámara alrededor del objetivo. Se acumulan/acotan dentro de update().
-    float yaw_       = 2.356f;  // acimut [rad] (~135°, 3/4 frontal sobre el avión)
-    float pitch_     = 0.35f;   // latitud [rad] (~20°, algo elevada)
-    float distancia_ = 5.0f;    // distancia al objetivo [unidades de escena]
+    float yaw_       = 2.356f;  // acimut (~135°): vista 3/4 desde adelante-derecha
+    float pitch_     = 0.42f;   // latitud (~24°): mira algo hacia abajo para ver el terreno
+    float distancia_ = 12.0f;   // distancia al objetivo [unidades de escena]
 
     // RESULTADO: las matrices view/projection. update() rellena .view y
     // set_viewport() rellena .projection; se lee por data(). Es privado para

@@ -18,7 +18,7 @@
 #include "core/Mesh.h"
 
 struct RenderItem {
-    const Mesh* mesh = nullptr;          // malla a dibujar (referencia, no es propia)
-    glm::mat4   model = glm::mat4(1.0f); // transformacion modelo -> mundo, YA compuesta
+    const Mesh* mesh = nullptr;          // malla en la GPU (VAO/VBO/EBO); referencia, no propia
+    glm::mat4   model = glm::mat4(1.0f); // matriz de modelo del objeto (calculada en CPU)
     glm::vec3   color = glm::vec3(1.0f); // color de la pieza (uColor)
 };

@@ -113,7 +113,11 @@ La arquitectura es el **destino**; el código actual ya da pasos hacia ella:
 - **FDM / game loop** ✔ — ya implementado en el Práctico 06: la librería
   `dlfdm` (FDM, caja negra), `InputHandler` con teclado, `FlightData` como
   estructura compartida y el game loop de paso fijo en `main`.
-- **HUD / terreno / texturas**: los módulos `HUD` y `Scene` completos.
+- **Terreno (Unidad VIII)** ✔ — ya implementado en el Práctico 07: el módulo
+  `Terrain` (malla generada por heightmap de ruido, normales, recorte de cara
+  trasera, ventana infinita) y `Alturas` (fuente de alturas desacoplada). Es la
+  parte "terreno" de `Scene`.
+- **HUD / texturas**: los módulos `HUD` y las texturas.
 - **Circuito / maniobras**: `CircuitState` + `GameLogic`.
 
 No conviene crear los módulos vacíos antes de tiempo: cada capa llega con su

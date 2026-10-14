@@ -112,8 +112,12 @@ valor = std::clamp(valor, min, max);
   - **alerones y timón → 0**,
   - **potencia (throttle) → NO centra**: se queda donde se dejó (se reduce a
     mano, como un acelerador real).
-- Ritmos: `rate = 0.25 rad/s` al mantener (poco sensible), `kCentrado = 5 1/s`
-  para el resorte de retorno. Fáciles de ajustar.
+- Ritmos: `rate = 0.25 rad/s` al mantener las superficies (poco sensible),
+  `kCentrado = 5 1/s` para el resorte de retorno. **El throttle (W/S) usa
+  `rate = 1.0 1/s`** (llega al tope en ~1 s) para que la potencia responda
+  rápido: su efecto es lento (el jet es pesado) así que la entrada no debe
+  frenarlo. Ojo: el **rango de velocidad** lo fija el FDM (todo el throttle mueve
+  la velocidad de ~137 a ~164 m/s), no la sensibilidad.
 - Decisión registrada: la guía deja el **centrado manual** como la alternativa
   simple; acá se eligió el **automático** por ser más realista (se documenta
   como decisión propia, como pide la consigna).

@@ -103,6 +103,20 @@ void Mesh::load(const MeshData& data)
     }
 }
 
+void Mesh::actualizar_vertices(const std::vector<Vertex>& vertices)
+{
+    // Reescribe el VBO existente (mismo tamaño). Si todavía no hay buffer, se
+    // delega en load() para no dejar la malla a medio armar.
+    if (vbo_ == 0U || vertices.empty()) {
+        return;
+    }
+    // Reescribe el buffer existente (mas barato)
+    // A diferencia de glNamedBufferData() que lo recrea
+    glNamedBufferSubData(vbo_, 0,
+                         static_cast<GLsizeiptr>(vertices.size() * sizeof(Vertex)),
+                         vertices.data());
+}
+
 void Mesh::clear(void)
 {
     // glDelete*(0) no hace nada: borrar dos veces no rompe y no se necesita

@@ -50,6 +50,10 @@ public:
     Mesh& operator=(Mesh&& other) noexcept;
 
     void load(const MeshData& data);            // sube a la GPU y arma el VAO
+    // Vuelve a subir SOLO los vértices al VBO (misma cantidad). Para mallas que
+    // recalculan sus atributos sin cambiar la topología (p. ej. el terreno
+    // infinito, Práctico 07). No recrea el VAO ni el EBO.
+    void actualizar_vertices(const std::vector<Vertex>& vertices);
     void clear(void);
 
     // Getters: devuelven los miembros privados (encapsulamiento). Los valores

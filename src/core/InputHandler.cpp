@@ -15,7 +15,8 @@ constexpr float kGananciaDistancia = 0.03f;    // [unidades de escena/px]
 
 // --- Teclado: rampa de velocidad constante + centrado automático ---
 constexpr float kRateSuperficies = 0.25f;   // [rad/s] al mantener la tecla
-constexpr float kRateThrottle    = 0.30f;   // [1/s]
+constexpr float kRateThrottle    = 1.00f;   // [1/s] el throttle llega al tope en ~1 s
+                                            // (el RANGO de velocidad lo fija el FDM)
 constexpr float kCentrado        = 5.0f;    // [1/s] velocidad del resorte de retorno
 
 // Rampa de un comando.

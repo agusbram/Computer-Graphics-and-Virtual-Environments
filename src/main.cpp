@@ -46,6 +46,7 @@
 #include "core/InputHandler.h"
 #include "core/ResourceManager.h"
 #include "core/Shader.h"
+#include "core/Terrain.h"
 
 // Datos básicos de la ventana
 static const char* kWindowTitle     = "Práctico 06 - FDM, game loop e input"; // Título
@@ -59,6 +60,11 @@ static const char* kAssetsRoot = "./assets";
 
 // Paso FIJO del FDM (debe coincidir con el que usa el solver: 1/120 s).
 static constexpr double kFdmDt = 1.0 / 120.0;
+
+// ESCALA GLOBAL (Práctico 07): 1 unidad de escena = 10 m. El modelo del avión
+// (1 unidad) representa ~10 m (el real mide ~9 m); el terreno, sus alturas y la
+// posición del FDM se llevan a unidades de escena dividiendo por este valor.
+static constexpr float kMetrosPorUnidad = 10.0f;
 
 // Variables globales para guardar el último error reportado por GLFW
 static int glfw_error_code{};
@@ -172,6 +178,26 @@ int main()
             input.set_controls(trim.controls);
             input.set_limits(parametros);
 
+            // --- Escena: el terreno procedural (Práctico 07) ---------------
+            // N=200 celdas, paso 2.5 u (25 m) -> 5 km de lado; amplitud de
+            // relieve 20 u (el real es ~1/3). El terreno se ubica a una ALTITUD
+            // FIJA en el mundo (no sigue al avión en vertical): a la altitud de
+            // trim menos un despeje chico, así el avión vuela BAJO sobre él y,
+            // con el elevador, puede descender hasta tocarlo. Semilla y
+            // frecuencia fijan un relieve reproducible.
+            const float kDespeje = 15.0f;   // u (~150 m) de vuelo sobre el terreno
+            const float altura_terreno =
+                -trim.state.inertial_position.z / kMetrosPorUnidad - kDespeje;
+            Terrain terreno(200U, 2.5f, 20.0f, altura_terreno, 1337, 0.005f);
+            terreno.init();
+
+            std::cout << "terreno  : " << terreno.celdas() << "x" << terreno.celdas()
+                      << " celdas, paso " << terreno.paso()
+                      << " u (terreno de " << terreno.celdas() * terreno.paso()
+                      << " u = " << terreno.celdas() * terreno.paso() * kMetrosPorUnidad
+                      << " m de lado); culling activado; el avion vuela a "
+                      << kDespeje << " u del suelo" << std::endl;
+
             std::cout << "aeronave : " << "escena compuesta por primitivas"
                       << std::endl;
             std::cout << "FDM      : jet trainer (Roskam 'C'), trim a 5000 m / "
@@ -197,6 +223,19 @@ int main()
 
             glEnable(GL_DEPTH_TEST);
             glEnable(GL_MULTISAMPLE);   // activa el antialiasing (MSAA) pedido arriba
+
+            // Eliminación de superficies ocultas (Práctico 07, Parte 3):
+            //   - depth test (z-buffer): resuelve, por fragmento, quién está
+            //     adelante (independiente del orden de dibujo).
+            //   - recorte de cara trasera (back-face culling): descarta los
+            //     polígonos que miran hacia el otro lado ANTES de rasterizarlos.
+            //     OpenGL decide por el WINDING (sentido antihorario = cara
+            //     frontal), NO usa el atributo normal. El terreno se generó
+            //     antihorario visto desde arriba -> sus caras miran hacia +Z y
+            //     desde arriba no se descartan.
+            glEnable(GL_CULL_FACE);
+            glCullFace(GL_BACK);     // descartar las traseras (default)
+            glFrontFace(GL_CCW);     // antihorario = frontal (default)
 
             // =============================================================
             // GAME LOOP con PASO FIJO + ACUMULADOR (Práctico 06, Parte 1)
@@ -234,25 +273,41 @@ int main()
                 }
 
                 // Una vez por cuadro: leer el estado ya integrado (posición NED
-                // + actitud φ/θ/ψ) y llevarlo a coordenadas de la escena.
+                // + actitud φ/θ/ψ) y llevarlo a la escena en UNIDADES (1u = 10 m).
                 FlightData flight = to_world(fdm.getState());
+                flight.position /= kMetrosPorUnidad;   // metros -> unidades de escena
+
+                // Lectura de vuelo (una vez por segundo): da feedback de W/S.
+                // (La velocidad NO se ve en pantalla: la cámara sigue al avión y
+                // el terreno también -> no hay referencia de movimiento.)
+                {
+                    static double ult = -1.0;   // instante del último mensaje (para no imprimir cada cuadro)
+                    if (ahora - ult >= 1.0) {
+                        ult = ahora;
+                        const dlfdm::AircraftState& st = fdm.getState();
+                        const float tas = glm::length(st.body_velocity);
+                        std::cout << "[vuelo] TAS=" << tas << " m/s ("
+                                  << tas * 3.6f << " km/h)  throttle="
+                                  << input.controls().throttle
+                                  << "  alt=" << -st.inertial_position.z << " m"
+                                  << std::endl;
+                    }
+                }
 
                 // ORIGEN FLOTANTE ("floating origin"): el FDM trabaja en metros
                 // y el avión está a ~5000 m (y se aleja volando), pero la cámara
-                // lo sigue a ~5 unidades. Con `float` (≈7 dígitos), números
+                // lo sigue a pocas unidades. Con `float` (≈7 dígitos), números
                 // grandes tienen un ULP grande; restar la posición de la cámara
-                // (~5000) a la del mundo (~5000) para obtener una distancia
-                // chica (~5) PIERDE PRECISIÓN (cancelación catastrófica) y esa
-                // imprecisión contamina la PROFUNDIDAD (z) -> Z-FIGHTING: en las
-                // uniones entre piezas (casi a la misma profundidad) el pixel
-                // parpadea entre las dos y empeora cuanto más se aleja.
-                // Solución: renderizar RELATIVO a un punto cercano a la cámara.
-                // Acá la referencia es el propio avión (lo único de la escena y
-                // lo que la cámara mira): mismo resultado visual, coordenadas
-                // chicas -> profundidad exacta. Cuando llegue el terreno, la
-                // referencia será la posición de la cámara. El FDM conserva su
-                // posición real (NED, metros) para la lógica y el mundo.
-                flight.position = glm::vec3(0.0f);
+                // (~500) a la del mundo (~500) para obtener una distancia chica
+                // PIERDE PRECISIÓN y contamina la PROFUNDIDAD -> Z-FIGHTING (en
+                // las uniones del avión y en el terreno). Solución: renderizar
+                // RELATIVO a un punto cercano. Acá la referencia es el avión (lo
+                // que la cámara mira): mismo resultado visual, coordenadas chicas
+                // -> profundidad exacta. El terreno también queda relativo a él.
+                const glm::vec3 pos_avion = flight.position;   // posición real (u)
+                terreno.update(pos_avion);                     // ventana infinita
+
+                flight.position = glm::vec3(0.0f);             // avión al origen
 
                 // El avión se ubica en la escena y la cámara lo orbita (objetivo
                 // en el origen, donde quedó el avión).
@@ -272,14 +327,25 @@ int main()
                 shader.set_uniform(loc_projection, camara.data().projection);
                 shader.set_uniform(loc_view, camara.data().view);
 
+                // LISTA DE DIBUJO: cada módulo arma su parte y la agrega como
+                // RenderItem(s). Un RenderItem es una DESCRIPCIÓN de qué dibujar:
+                //   mesh  -> la malla en la GPU (VAO/VBO/EBO), subida en load()
+                //   model -> la matriz de modelo, calculada en CPU por update()
+                //   color -> el color de la pieza
+                // El main NO conoce ni a Aircraft ni a Terrain: solo recorre la
+                // lista (no sabe cuántas piezas hay ni cómo están armadas).
                 std::vector<RenderItem> items;
-                avion.collect(items);
+                avion.collect(items);      // agrega 7 items (piezas del avión)
+                terreno.collect(items);    // agrega 1 item  (el terreno)
 
+                // Se consume la lista: por item se suben los uniforms (color +
+                // matriz de modelo) y se emite UN draw call contra su malla.
+                // La geometría dibujada es la de la GPU (vao/count), NO datos de CPU.
                 for (const RenderItem& item : items) {
-                    shader.set_uniform(loc_color, item.color);
-                    shader.set_uniform(loc_model, item.model);
-                    glBindVertexArray(item.mesh->vao());
-                    glDrawElements(GL_TRIANGLES, item.mesh->count(),
+                    shader.set_uniform(loc_color, item.color);   // color (uniform)
+                    shader.set_uniform(loc_model, item.model);   // matriz de modelo (CPU)
+                    glBindVertexArray(item.mesh->vao());         // malla de la GPU
+                    glDrawElements(GL_TRIANGLES, item.mesh->count(),  // draw call
                                    GL_UNSIGNED_INT, nullptr);
                 }
                 glBindVertexArray(0);
