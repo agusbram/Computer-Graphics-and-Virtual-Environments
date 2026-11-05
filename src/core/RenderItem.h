@@ -21,4 +21,8 @@ struct RenderItem {
     const Mesh* mesh = nullptr;          // malla en la GPU (VAO/VBO/EBO); referencia, no propia
     glm::mat4   model = glm::mat4(1.0f); // matriz de modelo del objeto (calculada en CPU)
     glm::vec3   color = glm::vec3(1.0f); // color de la pieza (uColor)
+    // Geomorphing (Práctico 07, LOD, uMorph): (paso del nivel, media extensión en
+    // celdas, ancho de transición en celdas). paso = 0 -> SIN morph (el avión
+    // y cualquier malla que no sea un nivel del clipmap).
+    glm::vec3   morph = glm::vec3(0.0f);
 };

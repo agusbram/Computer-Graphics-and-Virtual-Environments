@@ -117,6 +117,12 @@ La arquitectura es el **destino**; el código actual ya da pasos hacia ella:
   `Terrain` (malla generada por heightmap de ruido, normales, recorte de cara
   trasera, ventana infinita) y `Alturas` (fuente de alturas desacoplada). Es la
   parte "terreno" de `Scene`.
+- **LOD del terreno** ✔ — parte del Práctico 07: `Terrain` pasa a ser un
+  **geometry clipmap** (varios niveles anidados, un `RenderItem` por nivel,
+  geomorphing en `solid.vs`). Como mejora leve se agrega **niebla** lineal en
+  `solid.fs` (tema del Práctico 09, donde se mejorará). La interfaz
+  `init/update/collect` no cambió: el `main` sigue sin conocer los niveles.
+  Ver `docs-clipmaps/Geometry-Clipmaps.md`.
 - **HUD / texturas**: los módulos `HUD` y las texturas.
 - **Circuito / maniobras**: `CircuitState` + `GameLogic`.
 

@@ -78,6 +78,9 @@ struct AppContext {
     CameraSystem* camara = nullptr;
     bool paused    = false;
     bool wireframe = false;
+    bool colores_niveles = false;   // L: un color por nivel del clipmap
+    bool morph = true;              // M: geomorphing de los clipmaps (etapa 2)
+    bool niebla = true;             // N: niebla on/off (P07 mejora leve; se mejora en P09)
 };
 
 static void error_callback(int error, const char *description);
@@ -147,6 +150,18 @@ int main()
             const int loc_view       = shader.loc("uView");
             const int loc_projection = shader.loc("uProjection");
             const int loc_color      = shader.loc("uColor");
+            const int loc_morph      = shader.loc("uMorph");   // Práctico 07, LOD
+            const int loc_niebla_color  = shader.loc("uNieblaColor");   // niebla
+            const int loc_niebla_inicio = shader.loc("uNieblaInicio");
+            const int loc_niebla_fin    = shader.loc("uNieblaFin");
+            // Color del CIELO: se usa para limpiar el framebuffer Y como color
+            // de la niebla. Tienen que ser el MISMO: así lo lejano se funde con
+            // el fondo y el borde del terreno desaparece.
+            const glm::vec3 kCielo(51.0f / 256.0f, 55.0f / 256.0f, 76.0f / 256.0f);
+            // Niebla lineal: empieza a 300 u (3 km) y es total a 1800 u (18 km),
+            // un poco antes del borde del clipmap (2560 u) y del far (3000 u).
+            const float kNieblaInicio = 300.0f;
+            const float kNieblaFin    = 1800.0f;
 
             // --- Escena: la aeronave (Práctico 04) -------------------------
             Aircraft avion;
@@ -188,22 +203,28 @@ int main()
             const float kDespeje = 15.0f;   // u (~150 m) de vuelo sobre el terreno
             const float altura_terreno =
                 -trim.state.inertial_position.z / kMetrosPorUnidad - kDespeje;
-            Terrain terreno(200U, 2.5f, 20.0f, altura_terreno, 1337, 0.005f);
+            // Práctico 07, LOD: GEOMETRY CLIPMAPS (etapa 1). 5 niveles de 128x128
+            // celdas; el fino con paso 2.5 u (25 m) y cada nivel el doble ->
+            // el más grueso cubre 128·2.5·16 = 5120 u (51 km de lado).
+            Terrain terreno(128U, 2.5f, 5U, 20.0f, altura_terreno, 1337, 0.005f);
             terreno.init();
 
-            std::cout << "terreno  : " << terreno.celdas() << "x" << terreno.celdas()
-                      << " celdas, paso " << terreno.paso()
-                      << " u (terreno de " << terreno.celdas() * terreno.paso()
-                      << " u = " << terreno.celdas() * terreno.paso() * kMetrosPorUnidad
-                      << " m de lado); culling activado; el avion vuela a "
-                      << kDespeje << " u del suelo" << std::endl;
+            std::cout << "terreno  : clipmap de " << terreno.niveles() << " niveles de "
+                      << terreno.celdas() << "x" << terreno.celdas()
+                      << " celdas, paso fino " << terreno.paso()
+                      << " u; lado total " << terreno.extension()
+                      << " u = " << terreno.extension() * kMetrosPorUnidad
+                      << " m; el avion vuela a " << kDespeje << " u del suelo"
+                      << std::endl;
 
             std::cout << "aeronave : " << "escena compuesta por primitivas"
                       << std::endl;
             std::cout << "FDM      : jet trainer (Roskam 'C'), trim a 5000 m / "
                       << "150 m/s; dt = " << kFdmDt << " s" << std::endl;
             std::cout << "teclas   : flechas=cabeceo/alerones, Q/E=timon, "
-                      << "W/S=potencia, ESPACIO=pausa, F=wireframe" << std::endl;
+                      << "W/S=potencia, ESPACIO=pausa, F=wireframe, "
+                      << "L=colores por nivel, "
+                      << "M=geomorphing on/off, N=niebla on/off" << std::endl;
             {
                 GLint muestras = 0;
                 glGetIntegerv(GL_SAMPLES, &muestras);
@@ -305,6 +326,8 @@ int main()
                 // que la cámara mira): mismo resultado visual, coordenadas chicas
                 // -> profundidad exacta. El terreno también queda relativo a él.
                 const glm::vec3 pos_avion = flight.position;   // posición real (u)
+                terreno.set_colores_niveles(ctx.colores_niveles);
+                terreno.set_morph(ctx.morph);
                 terreno.update(pos_avion);                     // ventana infinita
 
                 flight.position = glm::vec3(0.0f);             // avión al origen
@@ -316,7 +339,7 @@ int main()
                               glm::vec3(flight.theta, flight.phi, flight.psi),
                               input.camera_cmd());
 
-                glClearColor(51.0f / 256.0f, 55.0f / 256.0f, 76.0f / 256.0f, 1.0f);
+                glClearColor(kCielo.r, kCielo.g, kCielo.b, 1.0f);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
                 // Comando discreto: alternar relleno/wireframe.
@@ -326,6 +349,10 @@ int main()
                 shader.use();
                 shader.set_uniform(loc_projection, camara.data().projection);
                 shader.set_uniform(loc_view, camara.data().view);
+                // Niebla: valores iguales para toda la escena -> una vez por cuadro.
+                shader.set_uniform(loc_niebla_color, kCielo);
+                shader.set_uniform(loc_niebla_inicio, kNieblaInicio);
+                shader.set_uniform(loc_niebla_fin, ctx.niebla ? kNieblaFin : 0.0f);
 
                 // LISTA DE DIBUJO: cada módulo arma su parte y la agrega como
                 // RenderItem(s). Un RenderItem es una DESCRIPCIÓN de qué dibujar:
@@ -344,6 +371,7 @@ int main()
                 for (const RenderItem& item : items) {
                     shader.set_uniform(loc_color, item.color);   // color (uniform)
                     shader.set_uniform(loc_model, item.model);   // matriz de modelo (CPU)
+                    shader.set_uniform(loc_morph, item.morph);   // geomorphing (0 = no)
                     glBindVertexArray(item.mesh->vao());         // malla de la GPU
                     glDrawElements(GL_TRIANGLES, item.mesh->count(),  // draw call
                                    GL_UNSIGNED_INT, nullptr);
@@ -408,6 +436,15 @@ void key_callback(GLFWwindow* window, int key, [[maybe_unused]] int scancode,
     }
     if (key == GLFW_KEY_F) {
         ctx->wireframe = !ctx->wireframe;   // alterna relleno/wireframe
+    }
+    if (key == GLFW_KEY_N) {
+        ctx->niebla = !ctx->niebla;         // niebla on/off (P07 mejora leve; P09)
+    }
+    if (key == GLFW_KEY_M) {
+        ctx->morph = !ctx->morph;           // geomorphing on/off (Práctico 07, LOD)
+    }
+    if (key == GLFW_KEY_L) {
+        ctx->colores_niveles = !ctx->colores_niveles;   // un color por nivel
     }
 }
 

@@ -89,6 +89,15 @@ void Mesh::load(const MeshData& data)
     glVertexArrayAttribBinding(vao_, 2, 0);
     glEnableVertexArrayAttrib(vao_, 2);
 
+    // Atributo 3 -> location = 3 (aZc): 1 float, la altura del nivel grueso
+    // (geometry clipmaps, Práctico 07, LOD). Como se anticipó en el Práctico 02:
+    // un campo más en Vertex = un par Format/Enable más acá + un location más
+    // en el shader.
+    glVertexArrayAttribFormat(vao_, 3, 1, GL_FLOAT, GL_FALSE,
+                              static_cast<GLuint>(offsetof(Vertex, altura_gruesa)));
+    glVertexArrayAttribBinding(vao_, 3, 0);
+    glEnableVertexArrayAttrib(vao_, 3);
+
     // EBO (opcional): lista de indices de los triangulos, a la ranura
     // dedicada del VAO.
     if (!data.indices.empty()) {
@@ -115,6 +124,18 @@ void Mesh::actualizar_vertices(const std::vector<Vertex>& vertices)
     glNamedBufferSubData(vbo_, 0,
                          static_cast<GLsizeiptr>(vertices.size() * sizeof(Vertex)),
                          vertices.data());
+}
+
+void Mesh::actualizar_indices(const std::vector<unsigned int>& indices)
+{
+    // Igual que actualizar_vertices pero para el EBO. Solo si la cantidad no
+    // cambia (si cambiara habría que recrear el buffer con load()).
+    if (ebo_ == 0U || static_cast<int>(indices.size()) != count_) {
+        return;
+    }
+    glNamedBufferSubData(ebo_, 0,
+                         static_cast<GLsizeiptr>(indices.size() * sizeof(unsigned int)),
+                         indices.data());
 }
 
 void Mesh::clear(void)

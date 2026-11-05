@@ -54,6 +54,11 @@ public:
     // recalculan sus atributos sin cambiar la topología (p. ej. el terreno
     // infinito, Práctico 07). No recrea el VAO ni el EBO.
     void actualizar_vertices(const std::vector<Vertex>& vertices);
+    // Vuelve a subir SOLO los índices al EBO (MISMA cantidad). Para los anillos
+    // de los geometry clipmaps (Práctico 07, LOD): el hueco del anillo se corre
+    // cuando se mueve el nivel más fino, pero siempre tiene la misma cantidad
+    // de celdas -> mismo tamaño de EBO.
+    void actualizar_indices(const std::vector<unsigned int>& indices);
     void clear(void);
 
     // Getters: devuelven los miembros privados (encapsulamiento). Los valores

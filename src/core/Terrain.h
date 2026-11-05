@@ -139,58 +139,98 @@ MeshData generar_malla_terreno(unsigned N, float paso,
 }
 
 // -----------------------------------------------------------------------------
-// Terrain — ventana de terreno que sigue al avión (terreno "infinito").
+// Terrain — GEOMETRY CLIPMAPS, etapa 1 (Práctico 07, LOD, Losasso & Hoppe 2004)
+//
+// En vez de UNA ventana de N x N celdas, hay `niveles` ventanas ANIDADAS, todas
+// centradas en el avión y todas de N x N celdas, pero con separación que se
+// DUPLICA por nivel:  paso_l = paso · 2^l.
+//   - nivel 0: el más fino, cubre N·paso (detalle máximo cerca del avión)
+//   - nivel l: cubre 2^l veces más lado con la misma cantidad de vértices
+// Cada nivel l >= 1 NO dibuja la zona que ya cubre el nivel l-1: se le quita un
+// HUECO de (N/2) x (N/2) de sus celdas -> se dibuja un ANILLO (la "render
+// region" del paper). El nivel 0 se dibuja completo.
+//
+// ALINEACIÓN (restricción del paper): el borde de un nivel fino debe caer sobre
+// vértices del nivel grueso. Por eso el centro de cada nivel se redondea a
+// múltiplos de 2·paso_l (no de paso_l): con N múltiplo de 4, la esquina queda en
+// un múltiplo de 2·paso_l = paso_(l+1), es decir, sobre un vértice del nivel
+// siguiente. El hueco cae así exactamente sobre celdas enteras del grueso.
+//
+// ETAPA 1: anillos anidados que siguen al avión, SIN transición. En el borde
+// entre niveles, los vértices impares del fino no coinciden con la arista del
+// grueso -> GRIETAS (T-junctions) y "popping".
+//
+// ETAPA 2 (esta): se eliminan con dos técnicas del paper (§6.2):
+//   a) GEOMORPHING: cada vértice guarda también z_c (altura en el nivel grueso,
+//      campo Vertex::altura_gruesa). El vertex shader (solid.vs) mezcla
+//      z' = (1-α)·z + α·z_c, con α = 0 adentro y α = 1 en el borde exterior
+//      (rampa de ancho w = N/10 celdas). En el borde el fino coincide con el
+//      grueso (sin grietas) y, como α depende de la posición CONTINUA del
+//      avión, la forma cambia suave (sin popping).
+//   b) TRIÁNGULOS DE ÁREA CERO en el borde exterior de cada nivel (salvo el
+//      más grueso): unen cada vértice impar con sus dos vecinos pares. Tras el
+//      morph los tres quedan alineados (área 0, no se ven), pero tapan las
+//      rendijas de un píxel que deja el redondeo de coma flotante.
+// Simplificación respecto del paper: no se usa direccionamiento toroidal; al
+// moverse un nivel se recalculan todas sus alturas (como la ventana infinita
+// del Práctico 07, pero por nivel: los gruesos casi nunca se mueven).
 // -----------------------------------------------------------------------------
 class Terrain {
 public:
-    // N: celdas por lado; paso: separación (unidades de escena);
-    // amplitud: desnivel máximo (unidades de escena);
+    // N: celdas por lado DE CADA NIVEL (múltiplo de 4); paso: separación del
+    // nivel 0; niveles: cantidad de anillos; amplitud: desnivel máximo;
     // altura_terreno: altitud FIJA del terreno en el mundo (unidades de escena).
-    //   NO sigue al avión en vertical: por eso el avión puede descender (con el
-    //   elevador) y acercarse hasta tocarlo.
-    // mitad_ = (N·paso)/2 = media extensión: sirve para CENTRAR la ventana en el
-    //   avión (esquina = centro - mitad_).
-    Terrain(unsigned N, float paso, float amplitud, float altura_terreno,
-            int semilla, float frecuencia);
-    ~Terrain();   // libera lo que posee (el Mesh se libera en su propio destructor)
+    Terrain(unsigned N, float paso, unsigned niveles, float amplitud,
+            float altura_terreno, int semilla, float frecuencia);
+    ~Terrain();
 
-    // Sin copia: Terrain POSEE un Mesh, y Mesh es de DUEÑO ÚNICO (copiarlo
-    // intentaría copiar el VAO -> error). Se borra la copia para que el
-    // compilador lo rechace de forma clara.
-    Terrain(const Terrain&) = delete;
+    Terrain(const Terrain&) = delete;            // posee Meshes (dueño único)
     Terrain& operator=(const Terrain&) = delete;
 
-    // init: genera la malla en CPU (generar_malla_terreno) y la sube a la GPU
-    // (malla_.load). Son dos pasos: calcular los datos -> subirlos.
+    // init: genera vértices + índices de cada nivel y los sube a la GPU.
     void init();
-    // update: ventana infinita. Redondea la posición HORIZONTAL del avión a
-    // múltiplos de paso_ (así el centro cae sobre nodos del heightmap y el
-    // relieve no "repta") y recalcula los vértices SOLO al cruzar una celda.
-    // Arma también la matriz de modelo (horizontal sigue al avión; vertical fija).
+    // update: cada nivel sigue al avión a saltos de 2·paso_l. Recalcula alturas
+    // SOLO del nivel que se movió, e índices (hueco) SOLO si se movió el nivel
+    // más fino que lo rellena. Arma la matriz de modelo de cada nivel.
     void update(const glm::vec3& pos_avion);
-    // collect: empaqueta el terreno en un RenderItem (mismo patrón que Aircraft);
-    // el main solo recorre la lista y dibuja. NO dibuja (no toca OpenGL).
+    // collect: un RenderItem por nivel (el main no se entera de cuántos son).
     void collect(std::vector<RenderItem>& items) const;
 
-    // Información para consola / verificación.
+    // Depuración: pinta cada nivel de un color distinto (tecla L).
+    void set_colores_niveles(bool activo) { colores_niveles_ = activo; }
+    // Depuración: geomorphing on/off (tecla M), para comparar etapa 1 vs 2.
+    void set_morph(bool activo) { morph_ = activo; }
+
     unsigned celdas() const { return N_; }
     float paso() const { return paso_; }
+    unsigned niveles() const { return static_cast<unsigned>(niveles_.size()); }
+    // Lado total cubierto (el del nivel más grueso), en unidades de escena.
+    float extension() const;
 
 private:
-    void recalcular_vertices();                   // alturas + normales + subir a GPU
-    // esquina = centro_ - (mitad_, mitad_): esquina de menor (x,y) de la ventana.
-    // Se usa para saber dónde cae cada nodo (leer el heightmap) y para el modelo.
-    glm::vec2 esquina() const;
+    struct Nivel {
+        float     paso {1.0f};          // paso_l = paso · 2^l
+        glm::vec2 centro {0.0f};        // centro (mundo), a saltos de 2·paso_l
+        glm::ivec2 hueco {-1, -1};      // celda (j,i) donde empieza el hueco (-1: sin hueco)
+        Mesh      malla;                // VAO/VBO/EBO del nivel
+        MeshData  datos;                // copia en CPU (para recalcular y re-subir)
+        glm::mat4 modelo {1.0f};
+    };
 
-    unsigned N_;                 // celdas por lado
-    float    paso_;              // separación entre vértices (unidades de escena)
-    float    mitad_;             // media extensión de la ventana = (N/2)·paso
-    float    altura_terreno_;    // altitud FIJA del terreno en el mundo (no sigue al avión)
-    Alturas  alturas_;           // fuente de alturas (ruido), desacoplada
-    Mesh     malla_;             // la malla en la GPU (VAO/VBO/EBO)
-    MeshData datos_;             // los datos en CPU (vértices+índices): para recalcular y re-subir
-    glm::vec3 color_ {0.33f, 0.45f, 0.28f};  // color plano del terreno
-    glm::mat4 modelo_ {1.0f};    // matriz de modelo (la arma update, la usa collect)
-    glm::vec2 centro_ {0.0f};    // centro de la ventana (mundo), a saltos de celda
-    bool      primera_ {true};   // "¿es la primera actualización?"
+    glm::vec2 esquina(const Nivel& nv) const;             // centro - (N/2)·paso_l
+    glm::vec2 centro_para(float paso_l, const glm::vec3& pos) const;
+    void recalcular_vertices(Nivel& nv);                   // alturas + normales
+    glm::ivec2 calcular_hueco(std::size_t l) const;        // dónde cae el nivel l-1
+    void armar_indices(Nivel& nv, bool cerrar_borde) const; // grilla - hueco (+ área 0)
+
+    unsigned N_;
+    float    paso_;
+    float    altura_terreno_;
+    Alturas  alturas_;
+    std::vector<Nivel> niveles_;
+    glm::vec3 color_ {0.33f, 0.45f, 0.28f};
+    bool      colores_niveles_ {false};
+    bool      morph_ {true};
+    float     ancho_transicion_ {1.0f};   // w del paper, en celdas (= N/10)
+    bool      primera_ {true};
 };

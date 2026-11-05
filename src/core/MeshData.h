@@ -34,6 +34,11 @@ struct Vertex {
     glm::vec3 position;   // posicion (x, y, z)
     glm::vec3 normal;     // perpendicular a la superficie (unitaria)
     glm::vec2 tex_coords; // coordenadas de textura (u, v) en [0, 1]
+    // Práctico 07, LOD (geometry clipmaps, etapa 2): z_c del paper = altura que
+    // tendría este punto en el NIVEL MÁS GRUESO (interpolada entre los
+    // vértices pares). El vertex shader mezcla z y z_c cerca del borde del
+    // anillo (geomorphing). Las demás mallas (avión) no la usan: queda en 0.
+    float altura_gruesa = 0.0f;
 };
 
 struct MeshData {

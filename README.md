@@ -32,6 +32,14 @@ que se desarrollan los prácticos del proyecto integrador
   con **normales** por diferencias centradas y **eliminación de superficies
   ocultas** (z-buffer + recorte de cara trasera); **terreno infinito** (la
   ventana sigue al avión) y modo **malla de alambre** (tecla F).
+  - *Niveles de detalle (LOD)* (parte del Práctico 07): **geometry clipmaps**
+    (Losasso & Hoppe 2004). La ventana única se reemplaza por 5 grillas
+    anidadas de 128×128 celdas con paso que se duplica por nivel (51 km de
+    lado). Etapa 1: anillos con hueco que siguen al avión. Etapa 2:
+    **geomorphing** en el vertex shader + triángulos de área cero (sin grietas
+    ni *popping*).
+  - *Niebla* (mejora leve, adelanto del Práctico 09): niebla lineal en el
+    fragment shader que oculta el borde del terreno; se mejora en el P09.
 
 ---
 
@@ -52,7 +60,8 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
 
 - `ESC` cierra.
 - **Teclado**: flechas = cabeceo/alerones; `Q`/`E` = timón; `W`/`S` = potencia;
-  `ESPACIO` = pausa; `F` = wireframe. (La tecla representa el bastón: ↑ baja la
+  `ESPACIO` = pausa; `F` = wireframe; `L` = colores por nivel del clipmap;
+  `M` = geomorphing on/off; `N` = niebla on/off. (La tecla representa el bastón: ↑ baja la
   nariz, como en un avión real.)
 - **Mouse**: botón izquierdo arrastrado = orbitar (yaw/pitch); botón derecho
   arrastrado (vertical) = acercar/alejar.
@@ -66,24 +75,24 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
 
 ```
 ├── assets/
-│   └── shaders/            # fuentes GLSL externos (solid.vs / solid.fs, triangle.*)
+│   └── shaders/            # fuentes GLSL externos (solid.vs: P·V·M + morph; solid.fs: color + niebla)
 ├── libs/
 │   └── dlfdm/              # librería de dinámica de vuelo (FDM, Práctico 06)
 ├── src/
 │   ├── main.cpp            # app: game loop (paso fijo) + FDM + terreno + cámara
 │   └── core/
-│       ├── MeshData.h          # tupla Vertex {position, normal, tex_coords} (glm)
-│       ├── Mesh.h/.cpp         # dueño del VAO/VBO/EBO (DSA 4.5, 3 atributos)
+│       ├── MeshData.h          # tupla Vertex {position, normal, tex_coords, altura_gruesa} (glm)
+│       ├── Mesh.h/.cpp         # dueño del VAO/VBO/EBO (DSA 4.5, 4 atributos; re-subida de vértices e índices)
 │       ├── Shader.h/.cpp       # dueño del programa linkeado + uniforms (DSA)
 │       ├── Primitives.h/.cpp   # cube(), cylinder(), cone() y sphere() (opcional)
 │       ├── Aircraft.h/.cpp     # modelo de la aeronave: piezas + locales + pose
-│       ├── RenderItem.h        # item de dibujo {mesh, model, color} (Práctico 04)
+│       ├── RenderItem.h        # item de dibujo {mesh, model, color, morph} (P04; morph: LOD del P07)
 │       ├── CameraData.h        # par de matrices {view, projection} (Práctico 05)
 │       ├── CameraCommand.h     # deltas de órbita {yaw, pitch, distancia}
 │       ├── CameraSystem.h/.cpp # cámara orbital: lookAt + perspective
 │       ├── FlightData.h        # datos de vuelo compartidos + to_world() (P06)
 │       ├── InputHandler.h/.cpp # mouse + teclado -> cámara y comandos del FDM
-│       ├── Terrain.h/.cpp      # terreno procedural + alturas (ruido) + ventana infinita (P07)
+│       ├── Terrain.h/.cpp      # terreno procedural + LOD por geometry clipmaps (P07)
 │       ├── ResourceManager.h   # cache de recursos (C++ puro, sin OpenGL)
 │       └── ResourceManager.cpp
 ├── tests/
@@ -104,6 +113,7 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
 ├── Practico06-Decisiones.md       # apuntes: FDM, game loop de paso fijo, teclado, to_world
 ├── Practico07-Decisiones.md       # apuntes: terreno procedural (heightmap, culling, ventana infinita)
 ├── Practico07-Consultas.md        # FAQ del terreno: mitad, esquina, template, dueño único, etc.
+├── docs-clipmaps/                 # Práctico 07: Geometry-Clipmaps.md (LOD, etapas 1 y 2, niebla leve) + img/
 └── Arquitectura-Proyecto.md       # arquitectura en capas (destino del proyecto, para más adelante)
 ```
 
@@ -280,6 +290,39 @@ generada a partir de un *heightmap* de ruido procedural.
   saltos de celda (solo se recalculan las alturas). **Modo alambre** con `F`.
   Ver `Practico07-Decisiones.md`.
 
+## Niveles de detalle: geometry clipmaps (Práctico 07) + niebla (mejora leve)
+
+El terreno pasa de **una** ventana uniforme (5 km, paso 25 m) a un **geometry
+clipmap**: varias grillas regulares **anidadas** y centradas en el avión, con
+detalle fino cerca y grueso lejos (material: diapositiva de clase, paper de
+Losasso & Hoppe 2004 y GPU Gems 2 cap. 2).
+
+| Pieza | Cambio |
+|---|---|
+| `Terrain.h/.cpp` | la clase guarda un `std::vector<Nivel>` (paso, centro, hueco, `Mesh`, `MeshData`, modelo); `collect` entrega **un `RenderItem` por nivel**; calcula `z_c` y los triángulos de área cero |
+| `Terrain(...)` | nuevo argumento `niveles`: `Terrain(128, 2.5, 5, 20, altura, 1337, 0.005)`; `N` = celdas por nivel (múltiplo de 4), `paso` = el del nivel fino |
+| `Mesh.h/.cpp` | `actualizar_indices()` (re-sube el EBO al correrse el hueco) y atributo **location 3** |
+| `MeshData.h` | `Vertex::altura_gruesa` (la `z_c` del paper) |
+| `RenderItem.h` | campo `morph` → uniform `uMorph = (paso, N/2, w)`; 0 = sin morph |
+| `solid.vs` | geomorphing `z' = mix(z, z_c, α)` y distancia a la cámara (`vDistancia`) |
+| `solid.fs` | niebla lineal `mix(uColor, cielo, f)` |
+| `main.cpp` | uniforms `uMorph` y de niebla, color de cielo único (`kCielo`), teclas L/M/N |
+
+- **Etapa 1**: 5 niveles de 128×128 celdas, paso 2.5·2^l u. Cada nivel sigue al
+  avión a saltos de 2·paso_l (alineación: su borde cae sobre vértices del nivel
+  siguiente) y el nivel grueso no dibuja el hueco que cubre el fino → anillos.
+  ~131.000 triángulos para 51 km de lado (antes 80.000 para 5 km). Solo se
+  recalcula el nivel que se movió.
+- **Etapa 2**: **geomorphing** (cerca del borde exterior el nivel fino toma la
+  forma del grueso, α en el vertex shader; ancho w = N/10) + **triángulos de
+  área cero** en el borde → sin grietas (T-junctions) ni *popping*.
+- **Niebla** (mejora leve; el tema es del **Práctico 09**, donde se va a
+  mejorar): lineal de 300 u (3 km) a 1800 u (18 km), del mismo color que el
+  fondo; oculta el borde del terreno y el plano `far`.
+- Verificación: `L` (anillos de colores), `F` (malla), `M` (con/sin morph:
+  aparecen/desaparecen las grietas), `N` (con/sin niebla: aparece el borde).
+  Ver [`docs-clipmaps/Geometry-Clipmaps.md`](docs-clipmaps/Geometry-Clipmaps.md).
+
 > **Build**: el `Makefile` no recompila al cambiar un encabezado → tras editar un
 > `.h` hay que hacer **`make clean && make`**.
 
@@ -287,6 +330,10 @@ generada a partir de un *heightmap* de ruido procedural.
 
 - [`Arquitectura-Proyecto.md`](Arquitectura-Proyecto.md) — arquitectura en capas
   del proyecto (aplicación / sistemas / datos), destino del simulador.
+- [`docs-clipmaps/Geometry-Clipmaps.md`](docs-clipmaps/Geometry-Clipmaps.md) —
+  Práctico 07 (LOD): geometry clipmaps explicados con las figuras del paper (regiones,
+  anillos, transición), implementación de las etapas 1 y 2, niebla (mejora leve), FAQ del
+  código (alineación, `uMorph`, `mix`, `RenderItem`, etc.) y cómo probar cada cosa.
 - [`Practico07-Decisiones.md`](Practico07-Decisiones.md) — terreno procedural:
   malla indexada, heightmap por ruido, normales, recorte de cara trasera (winding),
   ventana infinita (terreno infinito) y escala.
@@ -322,7 +369,7 @@ generada a partir de un *heightmap* de ruido procedural.
 
 Simulador de acrobacias aéreas (entrega final con defensa oral). Módulos por clase:
 shaders ✔ → primitivas 3D/Mesh/Shader ✔ → matrices ✔ (matriz de modelo) → aeronave ✔ →
-cámara ✔ → FDM/game loop/input ✔ → terreno ✔ → HUD/texturas → circuito/maniobras/puntuación.
+cámara ✔ → FDM/game loop/input ✔ → terreno + LOD (clipmaps) ✔ → niebla leve ✔ (mejorar en P09) → HUD/texturas → circuito/maniobras/puntuación.
 
 Requerimientos mínimos: escenario 3D, aeronave con actitud correcta, HUD (3
 instrumentos), control vía teclado/joystick con FDM provisto, 3 cámaras, circuito

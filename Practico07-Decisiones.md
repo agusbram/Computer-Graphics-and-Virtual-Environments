@@ -1,5 +1,11 @@
 # Práctico 07 — Terreno procedural: decisiones
 
+> **Nota (Práctico 07, LOD):** la ventana única descrita acá fue reemplazada por un
+> **geometry clipmap** (5 niveles anidados con geomorphing) y se agregó
+> **niebla** como mejora leve (se mejora en el Práctico 09). Las ideas de este apunte (heightmap, normales, winding, ventana
+> que sigue al avión a saltos) siguen valiendo para **cada nivel**. Ver
+> [`docs-clipmaps/Geometry-Clipmaps.md`](docs-clipmaps/Geometry-Clipmaps.md).
+
 Apunte de diseño del **Práctico 07**: cómo se genera una malla de terreno a
 partir de un *heightmap* (alturas por ruido procedural), cómo se calculan sus
 normales, cómo se activa la eliminación de superficies ocultas y cómo se

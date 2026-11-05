@@ -8,13 +8,32 @@
 // -----------------------------------------------------------------------------
 
 in vec3 vNormal;
+in float vDistancia;    // P07 (niebla, mejora leve): distancia a la cámara (viene de solid.vs)
 out vec4 FragColor;
 
 uniform vec3 uColor;    // color de la pieza (un valor por objeto)
 
+// Práctico 07 (mejora leve) — NIEBLA LINEAL. Versión básica: se mejora en el
+// Práctico 09 (Unidad IX, iluminación). Cuanto más lejos está el fragmento, más se
+// mezcla su color con el color de la niebla (= color del cielo/fondo):
+//   f = (d - inicio) / (fin - inicio), recortado a [0, 1]
+//   color = mix(uColor, uNieblaColor, f)
+// Antes de `inicio` no hay niebla; desde `fin` el objeto tiene EXACTAMENTE el
+// color del fondo, así que el borde del terreno (y el plano far) no se ven.
+// uNieblaFin <= 0 -> niebla apagada (tecla N).
+uniform vec3  uNieblaColor;
+uniform float uNieblaInicio;
+uniform float uNieblaFin;
+
 void main()
 {
-    FragColor = vec4(uColor, 1.0);
+    vec3 color = uColor;
+    if (uNieblaFin > 0.0) {
+        float f = clamp((vDistancia - uNieblaInicio) / (uNieblaFin - uNieblaInicio),
+                        0.0, 1.0);
+        color = mix(uColor, uNieblaColor, f);
+    }
+    FragColor = vec4(color, 1.0);
 
     // Modo de depuracion de normales: reemplazar la linea de arriba por:
     //   FragColor = vec4(vNormal * 0.5 + 0.5, 1.0);   // la normal, como color
