@@ -2,12 +2,12 @@
 // Terrain.cpp — terreno procedural (Práctico 07)
 // -----------------------------------------------------------------------------
 
-#include "core/Terrain.h"
+#include "core/Terrain.h"                // la declaración de la clase que se implementa acá
 
-#include <algorithm>
-#include <cmath>
+#include <algorithm>                     // std::max: ancho mínimo de la franja de geomorphing
+#include <cmath>                         // std::floor, std::round, std::lround: módulo de las (u, v) y centros de los niveles
 
-#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/matrix_transform.hpp>  // glm::translate: la matriz de modelo de cada nivel
 
 // -----------------------------------------------------------------------------
 // Alturas — ruido procedural con FastNoiseLite
@@ -158,17 +158,105 @@ void Terrain::recalcular_vertices(Nivel& nv)
     const glm::vec2 esq = esquina(nv);
     auto at = [fila](unsigned i, unsigned j) { return static_cast<std::size_t>(i) * fila + j; };
 
+    // Práctico 08 — COORDENADAS DE TEXTURA EN COORDENADAS DE MUNDO.
+    // La guía propone (u, v) = (j/N, i/N): una copia de la textura sobre toda la
+    // malla. Con el clipmap eso NO sirve: cada nivel tiene otro tamaño, así que
+    // el pasto cambiaría de escala en cada anillo (y saltaría al moverse la
+    // ventana). En cambio, cada vértice guarda su posición en el mundo (x, y) y
+    // el shader la divide por el tamaño de la tesela (uTamTesela): la textura
+    // queda "pegada al mundo", igual en todos los niveles, y es la MISMA cuenta
+    // que hace el suelo continuado del fondo (Parte 5) -> sin costura en el borde.
+    // Para no acumular números grandes, el origen se toma MÓDULO kPeriodoUV
+    // (en double, una vez por nivel; ver la explicación en Terrain.h).
+    auto modulo = [](double x, double periodo) { return x - periodo * std::floor(x / periodo); };
+    // El origen de las (u, v) de este nivel: la esquina del nivel, módulo el
+    // período. Después, cada vértice suma su posición dentro del nivel.
+    const glm::vec2 origen_uv(
+        static_cast<float>(modulo(static_cast<double>(esq.x), kPeriodoUV)),
+        static_cast<float>(modulo(static_cast<double>(esq.y), kPeriodoUV)));
+
+    // --- PASO 1: la GRILLA TEMPORAL DE ALTURAS --------------------------------
+    // Un nivel tiene (N+1) x (N+1) nodos (con N = 128: 129 x 129 = 16.641).
+    // `h` es un arreglo de ese tamaño con la ALTURA de cada nodo; se guarda
+    // "aplanado" en una sola fila de memoria: la fila i de la grilla ocupa
+    // h[i*fila] .. h[i*fila + N]. Eso es lo que calcula at(i, j) = i*fila + j.
+    //   i = número de FILA    -> recorre el eje y del mundo
+    //   j = número de COLUMNA -> recorre el eje x del mundo
+    //
+    // Posición en el MUNDO del nodo (i, j): la esquina del nivel más j pasos en
+    // x e i pasos en y:  (esq.x + j*p, esq.y + i*p). (p = paso de ESTE nivel.)
+    // alturas_(x, y) es la fuente de alturas del Práctico 07 (clase Alturas,
+    // ruido de FastNoiseLite): dada una posición del mundo, devuelve la altura
+    // ya en unidades de escena. Se le pasa la posición del MUNDO (y no la
+    // relativa al nivel) para que un mismo punto tenga la misma altura en
+    // todos los niveles y aunque la ventana se mueva.
+    //
+    // Por qué una grilla aparte y no pedir la altura directo al armar cada
+    // vértice: cada altura se usa VARIAS veces (la del vértice, la de las
+    // normales de sus 4 vecinos y la altura gruesa de los vecinos impares), y
+    // evaluar el ruido es lo CARO (varias octavas por punto). Así se evalúa
+    // UNA vez por nodo y después se lee del arreglo.
     std::vector<float> h(static_cast<std::size_t>(fila) * fila);
-    for (unsigned i = 0; i <= N_; ++i) {
-        for (unsigned j = 0; j <= N_; ++j) {
+    for (unsigned i = 0; i <= N_; ++i) {          // filas: de abajo (y chico) hacia arriba
+        for (unsigned j = 0; j <= N_; ++j) {      // columnas: de izquierda (x chico) a derecha
             h[at(i, j)] = alturas_(esq.x + static_cast<float>(j) * p,
                                    esq.y + static_cast<float>(i) * p);
         }
     }
+
+    // --- PASO 2: los VÉRTICES, leyendo las alturas de la grilla ------------------
+    // Para cada nodo: posición (RELATIVA a la esquina del nivel; el RenderItem
+    // la traslada al mundo), coordenadas de textura, normal por diferencias
+    // con los vecinos y altura en el nivel grueso (para el geomorphing).
     for (unsigned i = 0; i <= N_; ++i) {
         for (unsigned j = 0; j <= N_; ++j) {
             Vertex& v = nv.datos.vertices[at(i, j)];
             v.position = glm::vec3(static_cast<float>(j) * p, static_cast<float>(i) * p, h[at(i, j)]);
+            // (u, v) = posición en el mundo (módulo el período), en UNIDADES DE
+            // ESCENA; el shader las pasa a "teselas" dividiendo por uTamTesela.
+            // position.xy es la posición DENTRO del nivel (desde su esquina) y
+            // origen_uv es esa esquina en el mundo, módulo el período: la suma
+            // es la posición en el mundo (módulo el período).
+            v.tex_coords = origen_uv + glm::vec2(v.position.x, v.position.y);
+
+            // --- NORMAL por DIFERENCIAS CENTRALES (como en el Práctico 07) -------
+            // La normal es la dirección perpendicular a la superficie en ese
+            // punto: en lo plano apunta derecho hacia arriba (0, 0, 1) y en una
+            // ladera se inclina hacia el lado que BAJA.
+            //
+            // Se arma con dos vectores TANGENTES que salen de mirar a los vecinos:
+            //   en x: del vecino izquierdo (j-1) al derecho (j+1):
+            //         Tx = (2p, 0, h[j+1] - h[j-1])   (avanza 2p y sube/baja eso)
+            //   en y: del vecino de abajo (i-1) al de arriba (i+1):
+            //         Ty = (0, 2p, h[i+1] - h[i-1])
+            // La normal es el producto vectorial Tx x Ty, que (dividido por 2p)
+            // da exactamente:
+            //         ( h[j-1] - h[j+1],  h[i-1] - h[i+1],  2p )
+            //           \_____ dx ____/   \_____ dy ____/
+            // y después se normaliza (largo 1).
+            //
+            // Ejemplos:
+            //   - plano: dx = dy = 0 -> (0, 0, 2p) -> normal (0, 0, 1).
+            //   - sube hacia la derecha 1 paso por paso (45°): h[j+1] - h[j-1]
+            //     = 2p -> dx = -2p -> (-2p, 0, 2p) -> (-0.71, 0, 0.71): inclinada
+            //     45° hacia la IZQUIERDA, el lado que baja.
+            //
+            // Los ? : (operador ternario, "si ... entonces ... si no ...")
+            // resuelven los BORDES de la grilla, donde falta un vecino:
+            //   j == 0  (borde izquierdo, no hay j-1): usa el propio punto y el
+            //           de la derecha   -> h[j] - h[j+1]
+            //   j == N  (borde derecho, no hay j+1):  usa el de la izquierda y
+            //           el propio punto -> h[j-1] - h[j]
+            //   si no   (interior): la diferencia central h[j-1] - h[j+1].
+            // Igual para dy con i (borde de abajo i == 0, de arriba i == N).
+            // No se puede poner 0 en el borde: la normal quedaría vertical, y si
+            // las tres componentes fueran 0, normalizar sería una división por 0.
+            //
+            // DETALLE CONOCIDO (para el Práctico 09): en el borde la diferencia
+            // abarca UN paso (p) y no dos (2p), pero la z sigue siendo 2p: la
+            // pendiente del borde queda a la MITAD y esa normal sale un poco más
+            // vertical. Hoy no se nota (el 08 no ilumina). Con luz, se corrige
+            // multiplicando por 2 las dos diferencias de un solo lado.
             const float dx = (j == 0U) ? (h[at(i, j)] - h[at(i, j + 1U)])
                            : (j == N_) ? (h[at(i, j - 1U)] - h[at(i, j)])
                            :             (h[at(i, j - 1U)] - h[at(i, j + 1U)]);
@@ -244,11 +332,17 @@ void Terrain::collect(std::vector<RenderItem>& items) const
         {0.35f, 0.75f, 0.35f}, {0.30f, 0.60f, 0.90f}, {0.60f, 0.40f, 0.85f},
         {0.85f, 0.45f, 0.75f}, {0.60f, 0.60f, 0.60f},
     };
-    for (std::size_t l = 0; l < niveles_.size(); ++l) {
+    // Con la depuración "solo nivel fino" (tecla 1) se entrega únicamente el
+    // nivel 0: una ventana de N·paso como el terreno del Práctico 07.
+    const std::size_t a_dibujar = solo_nivel_fino_ ? 1U : niveles_.size();
+    for (std::size_t l = 0; l < a_dibujar; ++l) {
         RenderItem item;
         item.mesh  = &niveles_[l].malla;
         item.model = niveles_[l].modelo;
         item.color = colores_niveles_ ? paleta[l % 8U] : color_;
+        // Práctico 08: textura del suelo. Con los colores de depuración (L) se
+        // dibuja con color plano para que se vean los anillos.
+        item.textura = colores_niveles_ ? nullptr : textura_;
         // uMorph = (paso, N/2, w). El nivel más grueso no tiene a quién
         // parecerse afuera -> sin morph (paso 0). Con M apagado, todos en 0.
         const bool con_morph = morph_ && (l + 1U < niveles_.size());

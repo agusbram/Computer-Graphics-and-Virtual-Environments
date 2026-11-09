@@ -38,10 +38,10 @@
 
 #pragma once
 
-#include <glm/glm.hpp>
+#include <glm/glm.hpp>           // glm::vec3: posición y ángulos del avión que sigue la cámara
 
-#include "core/CameraCommand.h"
-#include "core/CameraData.h"
+#include "core/CameraCommand.h"  // CameraCommand: los giros pedidos con el mouse
+#include "core/CameraData.h"     // CameraData: vista, proyección y ojo que se calculan
 
 class CameraSystem {
 public:

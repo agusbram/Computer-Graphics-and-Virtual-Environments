@@ -1,5 +1,13 @@
 #version 460 core
 
+// =============================================================================
+// OBSOLETO desde el Práctico 08: este archivo YA NO SE CARGA. Se conserva como
+// referencia de la versión del Práctico 07 (terreno + avión con un solo
+// programa). Su contenido pasó a:
+//   - terreno.vs / terreno.fs   (morph del LOD + textura del pasto + niebla)
+//   - aeronave.vs / aeronave.fs (piezas del avión: color, chapa o imagen de prueba)
+// =============================================================================
+
 // -----------------------------------------------------------------------------
 // solid.fs — fragment shader (Práctico 03)
 //
@@ -7,9 +15,9 @@
 // uno por objeto. Lo setea el CPU antes de dibujar cada pieza.
 // -----------------------------------------------------------------------------
 
-in vec3 vNormal;
+in vec3 vNormal;        // normal interpolada (solo para el modo de depuración de abajo)
 in float vDistancia;    // P07 (niebla, mejora leve): distancia a la cámara (viene de solid.vs)
-out vec4 FragColor;
+out vec4 FragColor;     // color final del píxel
 
 uniform vec3 uColor;    // color de la pieza (un valor por objeto)
 
@@ -21,9 +29,9 @@ uniform vec3 uColor;    // color de la pieza (un valor por objeto)
 // Antes de `inicio` no hay niebla; desde `fin` el objeto tiene EXACTAMENTE el
 // color del fondo, así que el borde del terreno (y el plano far) no se ven.
 // uNieblaFin <= 0 -> niebla apagada (tecla N).
-uniform vec3  uNieblaColor;
-uniform float uNieblaInicio;
-uniform float uNieblaFin;
+uniform vec3  uNieblaColor;   // color de la niebla
+uniform float uNieblaInicio;  // distancia donde empieza
+uniform float uNieblaFin;     // distancia donde es total
 
 void main()
 {

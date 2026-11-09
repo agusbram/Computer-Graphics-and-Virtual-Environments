@@ -2,7 +2,7 @@
 // Primitives.cpp — implementacion (solo datos, sin OpenGL)
 // -----------------------------------------------------------------------------
 
-#include "core/Primitives.h"
+#include "core/Primitives.h"  // la declaración de las funciones que se implementan acá
 
 #include <cmath>        // cos, sin, tan
 #include <cstddef>      // size_t

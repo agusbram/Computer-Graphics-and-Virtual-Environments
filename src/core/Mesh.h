@@ -37,7 +37,7 @@
 
 #pragma once
 
-#include "core/MeshData.h"
+#include "core/MeshData.h"  // MeshData: los datos de la CPU que load() sube a la GPU
 
 class Mesh {
 public:

@@ -1,14 +1,16 @@
 // -----------------------------------------------------------------------------
 // test del ResourceManager — C++ puro, sin OpenGL.
-// Compilar (desde la raiz del proyecto):
-//   g++ -std=c++17 -Wall -Wextra -I./src src/core/ResourceManager.cpp tests/main_test_rm.cpp -o build/test_rm
+// Compilar (desde la raiz del proyecto). Desde el Práctico 08 el módulo usa
+// stb_image, por eso hace falta también -I./third_party/stb:
+//   g++ -std=c++17 -Wall -Wextra -I./src -I./third_party/stb src/core/ResourceManager.cpp tests/main_test_rm.cpp -o build/test_rm
 // -----------------------------------------------------------------------------
 
-#include <iostream>
-#include <stdexcept>
-#include <string>
+#include <cstdlib>                 // EXIT_SUCCESS y EXIT_FAILURE: el resultado del programa de prueba
+#include <iostream>                // std::cout y std::cerr: informar cada prueba
+#include <stdexcept>               // std::runtime_error: se verifica que los errores se lancen
+#include <string>                  // std::string: claves, rutas y contenidos que se comparan
 
-#include "core/ResourceManager.h"
+#include "core/ResourceManager.h"  // la clase que se prueba
 
 namespace {
 
@@ -109,6 +111,69 @@ int main()
 
         std::cout << "6. clear()" << std::endl;
         check(lanzo, "tras clear(), la clave ya no esta disponible");
+
+        // ==============================================================
+        // Práctico 08 — IMÁGENES (stb_image). Siguen siendo C++ puro:
+        // decodificar una imagen no necesita OpenGL.
+        // ==============================================================
+
+        // 7. Carga normal: grass.png es RGB (3 canales) de 256x256; se
+        //    guarda SIEMPRE como RGBA (4 bytes por texel).
+        const ImageData& pasto = rm.load_image("pasto", "textures/suelo/grass.png", true);
+        std::cout << "7. Carga de una imagen" << std::endl;
+        check(pasto.width == 256 && pasto.height == 256, "tamano 256x256");
+        check(pasto.channels == 3, "el archivo tiene 3 canales (informativo)");
+        check(pasto.pixels.size() == 256U * 256U * 4U, "pixels en RGBA: 4 bytes por texel");
+
+        // 8. Caché: el mismo pedido devuelve la MISMA imagen (sin leer el disco).
+        const ImageData& pasto2 = rm.load_image("pasto", "textures/suelo/grass.png", true);
+        std::cout << "8. Cache de imagenes" << std::endl;
+        check(&pasto == &pasto2, "el segundo pedido devuelve la copia en cache");
+
+        // 9. Volteo vertical: la misma imagen con y sin flip (DOS claves). La
+        //    fila 0 de una tiene que ser la ULTIMA fila de la otra. Esto
+        //    tambien prueba que stbi_set_flip_vertically_on_load se fija en
+        //    CADA carga (es un estado global de stb).
+        const ImageData& sin_flip = rm.load_image("pasto_sin_flip", "textures/suelo/grass.png", false);
+        const std::size_t fila = 256U * 4U;   // bytes por fila
+        bool invertida = true;
+        for (std::size_t b = 0; b < fila; ++b) {
+            if (pasto.pixels[b] != sin_flip.pixels[255U * fila + b]) {
+                invertida = false;
+                break;
+            }
+        }
+        std::cout << "9. Volteo vertical" << std::endl;
+        check(invertida, "fila 0 con flip == ultima fila sin flip");
+
+        // 10. Misma clave con OTRO flip: aviso + gana el cache (como shaders).
+        std::cout << "10. Misma clave con otro flip" << std::endl;
+        std::cout.flush();
+        const ImageData& conflicto_img = rm.load_image("pasto", "textures/suelo/grass.png", false);
+        check(&conflicto_img == &pasto, "se conserva la primera carga");
+
+        // 11. unload_image: libera la copia de la CPU; get_image ya no la encuentra.
+        std::cout << "11. unload_image" << std::endl;
+        check(rm.unload_image("pasto"), "unload_image devuelve true si la clave estaba");
+        check(!rm.unload_image("pasto"), "y false si ya no estaba");
+        lanzo = false;
+        try {
+            rm.get_image("pasto");
+        } catch (const std::runtime_error&) {
+            lanzo = true;
+        }
+        check(lanzo, "get_image de una imagen liberada lanza runtime_error");
+
+        // 12. Archivo inexistente -> excepción con mensaje claro.
+        lanzo = false;
+        try {
+            rm.load_image("fantasma", "textures/no_existe.png", true);
+        } catch (const std::runtime_error& e) {
+            lanzo = true;
+            std::cout << "12. Imagen inexistente" << std::endl;
+            std::cout << "  [OK]   excepcion esperada: " << e.what() << std::endl;
+        }
+        check(lanzo, "load_image con archivo inexistente lanza runtime_error");
     } catch (const std::exception& e) {
         std::cerr << "\nERROR: " << e.what() << std::endl;
         return EXIT_FAILURE;

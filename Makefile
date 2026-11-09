@@ -18,6 +18,7 @@ INC_DIRS = \
     $(GLAD_INC_DIRS) \
     $(DLFDM_INC_DIRS) \
     ./third_party/FastNoiseLite \
+    ./third_party/stb \
     ./src
 
 # ------------------------------------------------------------------------------

@@ -42,8 +42,8 @@
 
 #pragma once
 
-#include <glm/glm.hpp>
-#include <string>
+#include <glm/glm.hpp>  // glm::mat4, vec3, vec2: tipos de los uniforms (set_uniform)
+#include <string>       // std::string: código fuente de los shaders y nombres de uniforms
 
 class Shader {
 public:
@@ -73,6 +73,10 @@ public:
     void set_uniform(int ubicacion, const glm::mat4& m) const;
     void set_uniform(int ubicacion, const glm::vec3& v) const;
     void set_uniform(int ubicacion, float valor) const;
+    // Práctico 08: vec2 (escala de la textura, posición del ojo para el suelo
+    // continuado) e int (banderas on/off y modos; en GLSL `uniform int`).
+    void set_uniform(int ubicacion, const glm::vec2& v) const;
+    void set_uniform(int ubicacion, int valor) const;
 
     // Setters por nombre (legibles; buscan la ubicacion en cada llamado).
     void set_uniform(const std::string& nombre, const glm::mat4& m) const;

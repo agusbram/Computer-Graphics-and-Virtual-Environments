@@ -27,8 +27,8 @@
 
 #pragma once
 
-#include <glm/glm.hpp>
-#include <vector>
+#include <glm/glm.hpp>  // glm::vec3 y vec2: posición, normal y (u, v) de cada vértice
+#include <vector>       // std::vector: las listas de vértices e índices
 
 struct Vertex {
     glm::vec3 position;   // posicion (x, y, z)

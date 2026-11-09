@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include <glm/glm.hpp>
+#include <glm/glm.hpp>  // glm::mat4 y glm::vec3 (matrices de vista y proyección, posición del ojo)
 
 struct CameraData {
     glm::mat4 view       = glm::mat4(1.0f);

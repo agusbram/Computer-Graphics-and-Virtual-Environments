@@ -43,11 +43,11 @@
 
 #pragma once
 
-#include <GLFW/glfw3.h>
+#include <GLFW/glfw3.h>          // GLFWwindow y glfwGetKey: lee el teclado de la ventana
 
-#include <dlfdm/defines.h>
+#include <dlfdm/defines.h>       // dlfdm::ControlInputs y AircraftParameters (mandos del avión y sus límites)
 
-#include "core/CameraCommand.h"
+#include "core/CameraCommand.h"  // CameraCommand: los giros de cámara pedidos con el mouse
 
 class InputHandler {
 public:

@@ -1,5 +1,13 @@
 #version 460 core
 
+// =============================================================================
+// OBSOLETO desde el Práctico 08: este archivo YA NO SE CARGA. Se conserva como
+// referencia de la versión del Práctico 07 (terreno + avión con un solo
+// programa). Su contenido pasó a:
+//   - terreno.vs / terreno.fs   (morph del LOD + textura del pasto + niebla)
+//   - aeronave.vs / aeronave.fs (piezas del avión: color, chapa o imagen de prueba)
+// =============================================================================
+
 // -----------------------------------------------------------------------------
 // solid.vs — vertex shader (Práctico 05)
 //
@@ -17,12 +25,12 @@
 // (uProjection). La división por w y el viewport los hace la GPU (etapa fija).
 // -----------------------------------------------------------------------------
 
-layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec3 aNormal;
-layout (location = 2) in vec2 aTexCoords;
+layout (location = 0) in vec3 aPos;         // posición local del vértice
+layout (location = 1) in vec3 aNormal;      // normal de la superficie (copiada a vNormal)
+layout (location = 2) in vec2 aTexCoords;   // coordenadas de textura (sin usar en este shader)
 layout (location = 3) in float aZc;   // Práctico 07, LOD: altura en el nivel GRUESO
 
-out vec3 vNormal;
+out vec3 vNormal;       // la normal, hacia el fragment shader (sin usar todavía)
 out float vDistancia;   // Práctico 07, mejora leve (niebla; se mejora en P09): distancia del vértice a la CÁMARA
 
 uniform mat4 uModel;       // matriz de MODELO de la pieza actual (una por objeto)
@@ -37,7 +45,7 @@ uniform vec3 uMorph;
 void main()
 {
     vNormal = aNormal;
-    vec3 pos = aPos;
+    vec3 pos = aPos;    // copia modificable (el morph le cambia la z)
 
     if (uMorph.x > 0.0) {
         // Posición del OBSERVADOR (el avión) en coordenadas LOCALES del nivel.

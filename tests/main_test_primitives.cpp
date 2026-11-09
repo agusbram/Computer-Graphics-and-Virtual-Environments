@@ -11,11 +11,11 @@
 //   g++ -std=c++17 -Wall -Wextra -I./src src/core/Primitives.cpp tests/main_test_primitives.cpp -o build/test_primitives
 // -----------------------------------------------------------------------------
 
-#include "core/MeshData.h"
-#include "core/Primitives.h"
+#include "core/MeshData.h"    // MeshData: lo que devuelven las primitivas
+#include "core/Primitives.h"  // las funciones que se prueban (cube, cylinder, cone, ...)
 
-#include <glm/glm.hpp>
-#include <iostream>
+#include <glm/glm.hpp>        // glm::dot, cross, vec3: verificar normales y orientación
+#include <iostream>           // std::cout: informar cada prueba
 
 namespace {
 

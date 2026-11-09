@@ -31,15 +31,16 @@
 
 #pragma once
 
-#include <vector>
+#include <vector>             // std::vector: los niveles del clipmap y la lista de RenderItem
 
-#include <glm/glm.hpp>
+#include <glm/glm.hpp>        // glm::vec2, vec3, mat4: centros, posiciones y matriz de cada nivel
 
-#include "FastNoiseLite.h"
+#include "FastNoiseLite.h"    // FastNoiseLite: el ruido que genera las alturas (clase Alturas)
 
-#include "core/Mesh.h"
-#include "core/MeshData.h"
-#include "core/RenderItem.h"
+#include "core/Mesh.h"        // Mesh: la malla en la GPU de cada nivel
+#include "core/MeshData.h"    // MeshData: vértices e índices en la CPU (generar_malla_terreno)
+#include "core/RenderItem.h"  // RenderItem: lo que collect() entrega para dibujar
+#include "core/Texture.h"     // Texture: la textura del pasto (puntero, no es dueño)
 
 // -----------------------------------------------------------------------------
 // Fuente de alturas por ruido procedural (FastNoiseLite).
@@ -110,6 +111,9 @@ MeshData generar_malla_terreno(unsigned N, float paso,
                                    static_cast<float>(i) * paso,
                                    h(i, j));
             v.normal = normal(i, j);
+            // (u, v) = (j/N, i/N): la propuesta de la guía (una copia sobre toda
+            // la malla). OJO: con el LOD, Terrain::recalcular_vertices las
+            // REEMPLAZA por la posición en el mundo (Práctico 08, Parte 2).
             v.tex_coords = glm::vec2(static_cast<float>(j) / static_cast<float>(N),
                                      static_cast<float>(i) / static_cast<float>(N));
             mesh.vertices.push_back(v);
@@ -201,6 +205,28 @@ public:
     // Depuración: geomorphing on/off (tecla M), para comparar etapa 1 vs 2.
     void set_morph(bool activo) { morph_ = activo; }
 
+    // --- Práctico 08 ---------------------------------------------------------
+    // Textura del suelo (no propia: la posee main). nullptr -> color plano.
+    void set_textura(const Texture* textura) { textura_ = textura; }
+    // Depuración (tecla 1): dibujar SOLO el nivel fino (ventana de N·paso, como
+    // el terreno del Práctico 07) para reproducir el "problema de la altitud".
+    void set_solo_nivel_fino(bool activo) { solo_nivel_fino_ = activo; }
+    // Altitud FIJA del terreno en el mundo. Se puede cambiar (teclas RePág/AvPág)
+    // para simular más o menos altura de vuelo sin tener que pilotear.
+    void  set_altura_terreno(float altura) { altura_terreno_ = altura; }
+    float altura_terreno() const { return altura_terreno_; }
+    // Lado de la ventana del nivel fino (N·paso), en unidades de escena.
+    float extension_nivel_fino() const { return static_cast<float>(N_) * paso_; }
+
+    // PERÍODO de las coordenadas de textura (unidades de escena). Las (u, v) del
+    // terreno salen de la posición en el MUNDO: (u, v) = (x, y) / tamaño_tesela.
+    // Para que no crezcan sin límite (un float pierde decimales con valores
+    // grandes) se toma (x, y) MÓDULO este período. Como el período es un múltiplo
+    // ENTERO del tamaño de la tesela, restar un período desplaza la textura un
+    // número entero de copias y, con GL_REPEAT, se ve EXACTAMENTE igual.
+    // Condición: kPeriodoUV / tamaño_tesela tiene que ser entero (5120 / 5 = 1024).
+    static constexpr float kPeriodoUV = 5120.0f;
+
     unsigned celdas() const { return N_; }
     float paso() const { return paso_; }
     unsigned niveles() const { return static_cast<unsigned>(niveles_.size()); }
@@ -233,4 +259,6 @@ private:
     bool      morph_ {true};
     float     ancho_transicion_ {1.0f};   // w del paper, en celdas (= N/10)
     bool      primera_ {true};
+    const Texture* textura_ {nullptr};    // P08: textura del suelo (no propia)
+    bool      solo_nivel_fino_ {false};   // P08: depuración del problema de la altitud
 };

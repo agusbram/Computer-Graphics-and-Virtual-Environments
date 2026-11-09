@@ -2,7 +2,7 @@
 // InputHandler.cpp — mouse (Práctico 05) + teclado (Práctico 06)
 // -----------------------------------------------------------------------------
 
-#include "core/InputHandler.h"
+#include "core/InputHandler.h"  // la declaración de la clase que se implementa acá
 
 #include <algorithm>   // std::clamp
 

@@ -4,10 +4,10 @@
 // ID sin bindearlos (no se usa glBindVertexArray/glBindBuffer aca).
 // -----------------------------------------------------------------------------
 
-#include "core/Mesh.h"
+#include "core/Mesh.h"  // la declaración de la clase que se implementa acá
 
 #include <cstddef>              // offsetof
-#include <glad/gl.h>
+#include <glad/gl.h>    // funciones de OpenGL (glCreateBuffers, glCreateVertexArrays, ...)
 
 Mesh::~Mesh()
 {

@@ -2,11 +2,11 @@
 // CameraSystem.cpp — cámara orbital (Práctico 05)
 // -----------------------------------------------------------------------------
 
-#include "core/CameraSystem.h"
+#include "core/CameraSystem.h"               // la declaración de la clase que se implementa acá
 
-#include <cmath>
+#include <cmath>                             // std::sin, std::cos: posición de la cámara en la órbita
 
-#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/matrix_transform.hpp>     // glm::lookAt (vista) y glm::perspective (proyección)
 
 namespace {
 

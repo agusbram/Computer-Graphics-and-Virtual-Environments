@@ -40,14 +40,27 @@
 
 #pragma once
 
-#include <cstddef>
-#include <vector>
+#include <cstddef>            // std::size_t: índice de la malla que usa cada pieza
+#include <vector>             // std::vector: las mallas, piezas, colores y escalas de textura
 
-#include <glm/glm.hpp>
+#include <glm/glm.hpp>        // glm::mat4, vec3, vec2: matrices, colores y escalas de las piezas
 
-#include "core/FlightData.h"
-#include "core/Mesh.h"
-#include "core/RenderItem.h"
+#include "core/FlightData.h"  // FlightData: posición y actitud del avión (update)
+#include "core/Mesh.h"        // Mesh: las mallas de las piezas, en la GPU
+#include "core/RenderItem.h"  // RenderItem: lo que collect() entrega para dibujar
+#include "core/Texture.h"     // Texture: camuflaje, chapa o imagen de prueba (puntero, no es dueño)
+
+// Práctico 08: apariencia de la aeronave (tecla T recorre las tres primeras;
+// tecla U fuerza la cuarta).
+enum class AparienciaAvion {
+    Camuflaje,       // pintura de camuflaje (con el detalle de la chapa ya
+                     // incorporado) TAL CUAL: el color sale de la textura
+    MetalGris,       // la chapa TIÑE un gris metálico (nariz más oscura, como
+                     // un radomo): un jet de entrenamiento "sin pintar"
+    ColoresPiezas,   // los colores planos del Práctico 04 (uno por pieza): sirven
+                     // para distinguir las piezas, pero parecen de juguete
+    PruebaUV,        // imagen de prueba tal cual, UNA copia por cara (Parte 3)
+};
 
 class Aircraft {
 public:
@@ -63,11 +76,21 @@ public:
     // compuesta (pose * local) y lista para dibujar.
     void collect(std::vector<RenderItem>& items) const;
 
+    // Práctico 08: cómo se pinta la aeronave (ver AparienciaAvion). La textura
+    // NO es propia (la posee main): solo se guarda el puntero. Con
+    // ColoresPiezas no hace falta textura (puede ir nullptr).
+    void set_apariencia(AparienciaAvion modo, const Texture* textura);
+
 private:
     std::vector<Mesh>          piezas_;    // mallas DISTINTAS (una por malla)
     std::vector<glm::mat4>     locales_;   // matriz local por PIEZA (fija)
     std::vector<glm::vec3>     colores_;   // color por PIEZA
     std::vector<std::size_t>   malla_de_;  // qué malla usa cada pieza
+    std::vector<glm::vec2>     escalas_uv_;  // repeticiones de la CHAPA por PIEZA (P08)
+    std::vector<glm::vec2>     escalas_camuflaje_;  // repeticiones del CAMUFLAJE por PIEZA (P08)
+    std::vector<glm::vec3>     colores_metal_;      // gris metálico por PIEZA (P08)
+    AparienciaAvion            apariencia_ {AparienciaAvion::ColoresPiezas};  // P08
+    const Texture*             textura_ {nullptr};  // P08: textura de la apariencia (no propia)
     glm::mat4                  pose_ {1.0f};
     glm::vec3                  punto_ref_ {0.0f};  // centro de gravedad
 };

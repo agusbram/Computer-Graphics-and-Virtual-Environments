@@ -30,9 +30,9 @@
 
 #pragma once
 
-#include <glm/glm.hpp>
+#include <glm/glm.hpp>      // glm::vec3: posición y ángulos del avión en la escena
 
-#include <dlfdm/defines.h>
+#include <dlfdm/defines.h>  // dlfdm::AircraftState: el estado del FDM (en ejes NED) que se convierte
 
 struct FlightData {
     glm::vec3 position = glm::vec3(0.0f);   // posición en la ESCENA (Z arriba)

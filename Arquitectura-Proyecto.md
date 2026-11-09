@@ -64,6 +64,7 @@ un `main.cpp` gigante.
 | `ResourceManager` | transversal | carga y cachea shaders, texturas y modelos por nombre | nada gráfico directo |
 | `Shader` | infraestructura | compila, linkea y setea uniforms | decidir qué se dibuja |
 | `Mesh` | infraestructura | posee VAO/VBO/EBO, carga bytes | saber qué representa |
+| `Texture` (P08) | infraestructura | posee una textura de la GPU (2D / cubemap / 1D): 4 etapas DSA, mipmaps, muestreo | leer archivos (eso es de `ResourceManager`) |
 | `primitives` | infraestructura | genera geometría a partir de medidas | saber dónde va |
 | `Aircraft / Scene` | sistemas | qué modelos hay y dónde está cada uno | emitir draw calls |
 | `Renderer` | sistemas | emite draw calls, gestiona estado de GPU | física, lógica |
@@ -122,8 +123,24 @@ La arquitectura es el **destino**; el código actual ya da pasos hacia ella:
   geomorphing en `solid.vs`). Como mejora leve se agrega **niebla** lineal en
   `solid.fs` (tema del Práctico 09, donde se mejorará). La interfaz
   `init/update/collect` no cambió: el `main` sigue sin conocer los niveles.
-  Ver `docs-clipmaps/Geometry-Clipmaps.md`.
-- **HUD / texturas**: los módulos `HUD` y las texturas.
+  Ver `docs-clipmaps/Geometry-Clipmaps.md`. (Desde el Práctico 08 ese código
+  vive en `terreno.vs` / `terreno.fs`.)
+- **Texturas y cielo** ✔ — Práctico 08:
+  - `ResourceManager` carga **imágenes** (`ImageData`, stb_image): es su rol de
+    "transversal: shaders · texturas · modelos".
+  - `Texture` es infraestructura, igual que `Mesh`: el dueño del recurso de GPU.
+  - `Skybox` es la parte **"skybox" de `Scene`**: cubemap o degradé, más el suelo
+    continuado. Es dueño de su cubo, sus texturas y su shader.
+  - `RenderItem` suma un puntero **no dueño** a la textura: el contrato con el
+    futuro `Renderer` sigue siendo "una lista de piezas listas para dibujar".
+  - Hay **un programa por tipo de objeto** (terreno, aeronave, fondo). `main`
+    elige con cuál dibujar cada lista, que es justamente lo que un `Renderer`
+    haría.
+
+  Ver `Practico08-Decisiones.md`.
+- **Iluminación y niebla** (Práctico 09): código GLSL común, Phong, materiales y
+  gamma. Ver `Practico09-Pendientes.md`.
+- **HUD**: el módulo `HUD`.
 - **Circuito / maniobras**: `CircuitState` + `GameLogic`.
 
 No conviene crear los módulos vacíos antes de tiempo: cada capa llega con su

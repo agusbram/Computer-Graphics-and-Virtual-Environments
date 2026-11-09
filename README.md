@@ -1,4 +1,4 @@
-# CGyAV — Proyecto OpenGL (template + Prácticos 01 a 07)
+# CGyAV — Proyecto OpenGL (template + Prácticos 01 a 08)
 
 Proyecto base de **Computación gráfica y ambientes virtuales (0494)** — CRUC-IUA.
 Template de aplicación OpenGL moderna (core profile 4.6) con GLFW + GLAD sobre el
@@ -40,6 +40,15 @@ que se desarrollan los prácticos del proyecto integrador
     ni *popping*).
   - *Niebla* (mejora leve, adelanto del Práctico 09): niebla lineal en el
     fragment shader que oculta el borde del terreno; se mejora en el P09.
+- **Práctico 08** — *Texturas y cielo*: imágenes decodificadas con
+  **stb_image** en `ResourceManager` y subidas a la GPU por el módulo
+  **`Texture`** (DSA, 4 etapas, mipmaps); **pasto** en el terreno con
+  coordenadas de textura en coordenadas de mundo (continuas entre los niveles
+  del LOD); verificación de las `(u, v)` de las primitivas con una **imagen de
+  prueba asimétrica**; **chapa** CC0 en el avión; **cielo** con un *cubemap*
+  (módulo `Skybox`, vista sin traslación, método `z = w`) o un **degradé 1D**;
+  y **suelo continuado** en el fondo para tapar la banda del "problema de la
+  altitud".
 
 ---
 
@@ -50,6 +59,8 @@ que se desarrollan los prácticos del proyecto integrador
 - Librerías de desarrollo: **GLFW**, GL, X11 (`libglfw-dev`, etc. en Linux)
 - **glm** (`libglm-dev`; solo encabezados) — tipos y operaciones de álgebra lineal
 - GLAD está incluido en `third_party/glad` (no hace falta instalarlo)
+- **stb_image** (v2.30) está incluido en `third_party/stb` (un solo encabezado;
+  no hace falta instalarlo)
 
 ## Compilación y ejecución
 
@@ -63,6 +74,11 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
   `ESPACIO` = pausa; `F` = wireframe; `L` = colores por nivel del clipmap;
   `M` = geomorphing on/off; `N` = niebla on/off. (La tecla representa el bastón: ↑ baja la
   nariz, como en un avión real.)
+- **Teclado (Práctico 08)**: `U` = imagen de prueba UV; `T` = apariencia del avión
+  (camuflaje / metal gris / colores de las piezas);
+  `I` = filtrado del pasto (con mipmaps / sin mipmaps / "trampa"); `K` = cielo
+  cubemap ↔ degradé; `G` = suelo continuado; `1` = solo el nivel fino del LOD;
+  `RePág`/`AvPág` = altura sobre el terreno (para medir la banda).
 - **Mouse**: botón izquierdo arrastrado = orbitar (yaw/pitch); botón derecho
   arrastrado (vertical) = acercar/alejar.
 - La consola muestra versión de driver/vendor/GLSL al arrancar.
@@ -75,32 +91,44 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
 
 ```
 ├── assets/
-│   └── shaders/            # fuentes GLSL externos (solid.vs: P·V·M + morph; solid.fs: color + niebla)
+│   ├── shaders/            # fuentes GLSL externos:
+│   │                       #   terreno.*  (morph del LOD + pasto + niebla)       — P08
+│   │                       #   aeronave.* (color, chapa o imagen de prueba)       — P08
+│   │                       #   fondo.*    (cielo cubemap/degradé + suelo continuado) — P08
+│   │                       #   solid.*    (OBSOLETOS: la versión del P07, ya no se cargan)
+│   └── textures/           # P08: suelo/ (pasto), cielo/ (cubemap), avion/ (chapa CC0),
+│                           #      prueba/ (imagen UV) + LICENCIAS.md (avion/: chapa CC0 + camuflaje generado)
 ├── libs/
 │   └── dlfdm/              # librería de dinámica de vuelo (FDM, Práctico 06)
 ├── src/
-│   ├── main.cpp            # app: game loop (paso fijo) + FDM + terreno + cámara
+│   ├── main.cpp            # app: game loop (paso fijo) + FDM + terreno + cielo + cámara
 │   └── core/
 │       ├── MeshData.h          # tupla Vertex {position, normal, tex_coords, altura_gruesa} (glm)
 │       ├── Mesh.h/.cpp         # dueño del VAO/VBO/EBO (DSA 4.5, 4 atributos; re-subida de vértices e índices)
 │       ├── Shader.h/.cpp       # dueño del programa linkeado + uniforms (DSA)
 │       ├── Primitives.h/.cpp   # cube(), cylinder(), cone() y sphere() (opcional)
 │       ├── Aircraft.h/.cpp     # modelo de la aeronave: piezas + locales + pose
-│       ├── RenderItem.h        # item de dibujo {mesh, model, color, morph} (P04; morph: LOD del P07)
+│       ├── RenderItem.h        # item de dibujo {mesh, model, color, morph, textura, escala_uv} (P04; LOD P07; textura P08)
+│       ├── Texture.h/.cpp      # dueño único de una textura (2D / cubemap / 1D, DSA, mipmaps) (P08)
+│       ├── Skybox.h/.cpp       # fondo: cubo + cubemap + degradé + suelo continuado (P08)
 │       ├── CameraData.h        # par de matrices {view, projection} (Práctico 05)
 │       ├── CameraCommand.h     # deltas de órbita {yaw, pitch, distancia}
 │       ├── CameraSystem.h/.cpp # cámara orbital: lookAt + perspective
 │       ├── FlightData.h        # datos de vuelo compartidos + to_world() (P06)
 │       ├── InputHandler.h/.cpp # mouse + teclado -> cámara y comandos del FDM
 │       ├── Terrain.h/.cpp      # terreno procedural + LOD por geometry clipmaps (P07)
-│       ├── ResourceManager.h   # cache de recursos (C++ puro, sin OpenGL)
+│       ├── ResourceManager.h   # cache de recursos (C++ puro, sin OpenGL): shaders e imágenes (P08)
 │       └── ResourceManager.cpp
 ├── tests/
 │   ├── main_test_rm.cpp        # test standalone del ResourceManager
 │   └── main_test_primitives.cpp# verificación de winding por producto vectorial
 ├── third_party/
 │   ├── glad/               # cargador de funciones OpenGL
-│   └── FastNoiseLite/      # ruido procedural para el heightmap (Práctico 07)
+│   ├── FastNoiseLite/      # ruido procedural para el heightmap (Práctico 07)
+│   └── stb/                # stb_image.h: decodificar PNG/JPG (Práctico 08)
+├── tools/
+│   ├── generar_imagen_prueba_uv.py # genera la imagen de prueba asimétrica (P08)
+│   └── generar_camuflaje.py        # genera el camuflaje del avión (tileable, P08)
 ├── Makefile                # configuración del proyecto (usa Makefile.master)
 ├── Clinica-Practico-01.md          # apuntes: clínica de debugging (3 roturas)
 ├── ResourceManager-Practico-01.md  # apuntes: diseño y funcionamiento del módulo
@@ -114,22 +142,30 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
 ├── Practico07-Decisiones.md       # apuntes: terreno procedural (heightmap, culling, ventana infinita)
 ├── Practico07-Consultas.md        # FAQ del terreno: mitad, esquina, template, dueño único, etc.
 ├── docs-clipmaps/                 # Práctico 07: Geometry-Clipmaps.md (LOD, etapas 1 y 2, niebla leve) + img/
+├── Practico08-Decisiones.md       # apuntes: texturas, Texture, cielo (cubemap/degradé), suelo continuado
+├── Practico08-Consultas.md        # FAQ del P08: vista sin traslación, xyww, culling, tesela, uniforms...
+├── docs-p08/img/                  # capturas del P08 (cielo, prueba UV, mipmaps, banda)
+├── Practico09-Pendientes.md       # qué queda para el P09 y por qué no se hizo en el P08
 └── Arquitectura-Proyecto.md       # arquitectura en capas (destino del proyecto, para más adelante)
 ```
 
 ## Test del ResourceManager
 
 El enunciado pide un programa de prueba que demuestre el cacheo, compilable en
-forma aislada con solo la biblioteca estándar:
+forma aislada (sin OpenGL). Desde el Práctico 08 necesita también el encabezado
+de stb_image:
 
 ```bash
-g++ -std=c++17 -Wall -Wextra -I./src src/core/ResourceManager.cpp \
+g++ -std=c++17 -Wall -Wextra -I./src -I./third_party/stb src/core/ResourceManager.cpp \
     tests/main_test_rm.cpp -o build/test_rm && ./build/test_rm
 ```
 
 Demuestra: carga desde disco, caché (segundo pedido no relee), aviso ante clave
 repetida con otros archivos, excepciones ante archivo faltante o clave inexistente,
-y comportamiento de `clear()`.
+y comportamiento de `clear()`. **Práctico 08:** carga de imágenes en RGBA, caché
+de imágenes, **volteo vertical** (la fila 0 con flip es la última sin flip),
+aviso ante la misma clave con otro flip, `unload_image` y error ante una imagen
+inexistente.
 
 ## Módulo ResourceManager (Práctico 01 — Parte 2)
 
@@ -326,10 +362,44 @@ Losasso & Hoppe 2004 y GPU Gems 2 cap. 2).
 > **Build**: el `Makefile` no recompila al cambiar un encabezado → tras editar un
 > `.h` hay que hacer **`make clean && make`**.
 
+## Texturas y cielo (Práctico 08)
+
+| Pieza | Cambio |
+|---|---|
+| `third_party/stb` (nuevo) | `stb_image.h` v2.30: decodifica PNG/JPG; `STB_IMAGE_IMPLEMENTATION` solo en `ResourceManager.cpp` |
+| `ResourceManager` | `ImageData` (siempre RGBA) + `load_image(key, file, flip)` / `get_image` / `unload_image`; flip fijado en **cada** carga (estado global de stb) |
+| `Texture.h/.cpp` (nuevo) | dueño único (mismas reglas que `Mesh`); 4 etapas en DSA; `load_2d` (mipmaps `⌊log₂⌋+1`), `load_cubemap`, `load_1d`; muestreo **cambiable** (`set_muestreo`) |
+| `RenderItem` | `const Texture* textura` (no dueño; `nullptr` = color plano) + `escala_uv` |
+| `Terrain` | `(u, v)` = posición en el **mundo** módulo 5120 u (continua entre niveles del LOD y con el fondo) |
+| `Aircraft` | `AparienciaAvion` (tecla `T`): **camuflaje** (textura generada, tileable, con detalle de chapa), **metal gris** (chapa CC0 que tiñe un gris) o colores del P04; `U` = imagen de prueba |
+| `Skybox.h/.cpp` (nuevo) | cubo + cubemap + degradé 1D + suelo continuado; vista sin traslación; método (b) `z = w` + `GL_LEQUAL`; sin recorte de caras |
+| Shaders | `terreno.*`, `aeronave.*` y `fondo.*` (un programa por tipo de objeto); `solid.*` quedan obsoletos |
+| `main.cpp` | carga de imágenes/texturas (y su liberación de la CPU), dos listas de dibujo, fondo al último, teclas U/T/I/K/G/1/RePág/AvPág |
+
+- **Tesela del pasto:** 50 m (1024 teselas sobre el clipmap de 51,2 km).
+- **Escena Z-arriba:** el cubemap se lee con la dirección rotada `(x, z, −y)`. El suelo continuado usa el plano `z = altura del terreno`.
+- **Datos calculados del cubemap:** el color del horizonte (es el color de la niebla) y la dirección del sol pintado (≈ 30° de elevación, para el P09).
+- **Banda de la altitud:** con el LOD empieza a notarse a ~700 m sobre el terreno; con solo el nivel fino, desde el vuelo normal. El suelo continuado la tapa a cualquier altura.
+
+Ver [`Practico08-Decisiones.md`](Practico08-Decisiones.md) y [`Practico08-Consultas.md`](Practico08-Consultas.md). Lo que queda para el Práctico 09 está en [`Practico09-Pendientes.md`](Practico09-Pendientes.md).
+
 ## Documentación de los prácticos
 
 - [`Arquitectura-Proyecto.md`](Arquitectura-Proyecto.md) — arquitectura en capas
   del proyecto (aplicación / sistemas / datos), destino del simulador.
+- [`Practico08-Decisiones.md`](Practico08-Decisiones.md) — texturas y cielo:
+  `ImageData`/`load_image` (flip, RGBA, `unload_image`), módulo `Texture` (4 etapas
+  DSA, mipmaps, la trampa), `(u, v)` del terreno en coordenadas de mundo, imagen de
+  prueba asimétrica, chapa del avión, `Skybox` (cubemap, vista sin traslación,
+  método `z = w`, Z-arriba), degradé 1D, problema de la altitud (medido) y suelo
+  continuado, con capturas.
+- [`Practico08-Consultas.md`](Practico08-Consultas.md) — FAQ del P08: por qué se
+  quita la traslación, `xyww` + `GL_LEQUAL`, culling del cubo, LOD vs suelo
+  continuado, tesela, `uniform`/`binding`, `GL_RGBA8`, día/noche, arena, imagen de
+  prueba, y las "cuestiones a pensar" de la guía.
+- [`Practico09-Pendientes.md`](Practico09-Pendientes.md) — qué quedó preparado para
+  el Práctico 09 y qué se dejó para él (código GLSL común, Phong, niebla
+  exponencial, gamma, día/noche) y por qué.
 - [`docs-clipmaps/Geometry-Clipmaps.md`](docs-clipmaps/Geometry-Clipmaps.md) —
   Práctico 07 (LOD): geometry clipmaps explicados con las figuras del paper (regiones,
   anillos, transición), implementación de las etapas 1 y 2, niebla (mejora leve), FAQ del
@@ -369,7 +439,7 @@ Losasso & Hoppe 2004 y GPU Gems 2 cap. 2).
 
 Simulador de acrobacias aéreas (entrega final con defensa oral). Módulos por clase:
 shaders ✔ → primitivas 3D/Mesh/Shader ✔ → matrices ✔ (matriz de modelo) → aeronave ✔ →
-cámara ✔ → FDM/game loop/input ✔ → terreno + LOD (clipmaps) ✔ → niebla leve ✔ (mejorar en P09) → HUD/texturas → circuito/maniobras/puntuación.
+cámara ✔ → FDM/game loop/input ✔ → terreno + LOD (clipmaps) ✔ → niebla leve ✔ (mejorar en P09) → texturas + cielo ✔ (P08) → iluminación + niebla + gamma (P09; mejora propia: curvatura de la Tierra) → HUD → circuito/maniobras/puntuación.
 
 Requerimientos mínimos: escenario 3D, aeronave con actitud correcta, HUD (3
 instrumentos), control vía teclado/joystick con FDM provisto, 3 cámaras, circuito

@@ -3,6 +3,12 @@
 > Los niveles de detalle (etapas 1 y 2) son parte del **Práctico 07** (terreno).
 > La **niebla** (sección 12) es una **mejora leve** que adelanta un tema del
 > **Práctico 09**; ahí se va a mejorar.
+>
+> **Nota (Práctico 08):** el código de shaders que este documento cita como `solid.vs` / `solid.fs`
+> ahora está en **`terreno.vs` / `terreno.fs`**: cada tipo de objeto tiene su propio programa.
+> `solid.*` quedaron obsoletos. Además, en el Práctico 08 las coordenadas de textura del terreno
+> se calculan desde la posición en el **mundo**, para que el pasto sea continuo entre los niveles
+> (ver `Practico08-Decisiones.md`, Parte 2).
 
 Material usado:
 - `Geometry-clipmaps.png`: la diapositiva de la clase.
@@ -487,6 +493,8 @@ color = mix(uColor, colorNiebla, f)
 | ≥ 1800 u (18 km) | 1 | exactamente el color del cielo (invisible) |
 
 `fin` (1800 u) está antes del borde del clipmap (2560 u) y del `far` (3000 u). Por eso ninguno de los dos llega a verse.
+
+> **Práctico 08:** la niebla tomó el **color del horizonte del cubemap**; las distancias siguen siendo 300–1800 u. Ver `Practico08-Decisiones.md`, sección "Niebla".
 
 Hay otras variantes: exponencial `f = 1 − e^(−densidad·d)` o exponencial cuadrada. Se eligió la lineal porque es la más fácil de explicar y de ajustar: se dice directamente "dónde empieza" y "dónde termina".
 

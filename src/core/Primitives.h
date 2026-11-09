@@ -36,7 +36,7 @@
 
 #pragma once
 
-#include "core/MeshData.h"
+#include "core/MeshData.h"  // MeshData: lo que devuelve cada primitiva
 
 namespace primitives {
 
