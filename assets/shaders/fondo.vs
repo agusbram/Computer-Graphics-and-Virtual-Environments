@@ -1,4 +1,4 @@
-#version 460 core
+// Sin #version: desde el Práctico 09 la agrega la clase Shader a todas las etapas (ver Shader.cpp).
 
 // -----------------------------------------------------------------------------
 // fondo.vs — vertex shader del FONDO: cielo + suelo continuado (Práctico 08)

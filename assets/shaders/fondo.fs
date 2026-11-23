@@ -1,4 +1,4 @@
-#version 460 core
+// Sin #version: desde el Práctico 09 la agrega la clase Shader a todas las etapas (ver Shader.cpp).
 
 // -----------------------------------------------------------------------------
 // fondo.fs — fragment shader del FONDO (Práctico 08, Partes 4 y 5 + opcional)
@@ -19,6 +19,13 @@
 //   - el punto del suelo es (x, y) (la guía: (x, z)).
 // El cubemap de OpenGL, en cambio, tiene "arriba" en +Y: para leerlo se
 // reacomoda la dirección con a_cubemap().
+//
+// Práctico 09 (Parte 1): el programa se arma con
+//   #version + iluminacion.glsl + fondo.fs
+// La niebla que estaba repetida acá se borró: el suelo continuado usa la del
+// código común, la MISMA que la malla (si no, se vería el borde). Para eso hace
+// falta el punto del suelo en MUNDO, P = uOjo + t·d (uOjo viene del código
+// común: por eso este archivo NO lo declara, sería una redefinición).
 // -----------------------------------------------------------------------------
 
 // ENTRADA (in): la dirección de este píxel, interpolada desde fondo.vs (en el
@@ -39,21 +46,8 @@ uniform vec2  uOjoUV;            // posición (x, y) del ojo en el mundo, MÓDUL
 uniform float uAlturaOjo;        // altura del ojo SOBRE el plano del suelo (unidades de escena)
 uniform float uTamTesela;        // tamaño de una tesela (el mismo uTamTesela del terreno)
 
-// Niebla lineal: la MISMA de terreno.fs (repetida a propósito hasta el Práctico
-// 09, que la pasa a código común). El suelo continuado tiene que recibir
-// exactamente la misma niebla que la malla: si no, se vería el borde.
-uniform vec3  uNieblaColor;   // color de la niebla (= horizonte del cielo)
-uniform float uNieblaInicio;  // distancia donde empieza
-uniform float uNieblaFin;     // distancia donde es total; <= 0 -> apagada (tecla N)
-
-vec3 aplicar_niebla(vec3 color, float distancia)
-{
-    if (uNieblaFin <= 0.0) {
-        return color;
-    }
-    float f = clamp((distancia - uNieblaInicio) / (uNieblaFin - uNieblaInicio), 0.0, 1.0);
-    return mix(color, uNieblaColor, f);
-}
+// La niebla (uNieblaColor, uNieblaInicio, uNieblaFin, aplicar_niebla) y la
+// posición del ojo en mundo (uOjo) vienen de iluminacion.glsl.
 
 // Dirección de NUESTRA escena (Z arriba) -> convención del cubemap (Y arriba).
 // (x, y, z) -> (x, z, -y) es una ROTACIÓN de -90° alrededor del eje X: lleva
@@ -98,7 +92,11 @@ void main()
     // el horizonte las (u, v) cambian muy rápido entre píxeles vecinos y el
     // mipmap usa niveles cada vez más chicos: queda el color promedio del pasto.
     vec3 suelo = texture(uTexturaSuelo, xy / uTamTesela).rgb;   // color del pasto en ese punto
-    suelo = aplicar_niebla(suelo, t);              // t = distancia al ojo (d es unitaria)
+    // El mismo punto del suelo, pero en MUNDO (origen flotante), para el código
+    // común: P = ojo + t·d. Su distancia al ojo es t (d es unitaria), la misma
+    // que se usaba en el Práctico 08. Su altura es uOjo.z - uAlturaOjo (el plano).
+    vec3 P_suelo = uOjo + t * d;
+    suelo = aplicar_niebla(suelo, P_suelo);        // la MISMA niebla que la malla
 
     // Las TRES texturas se leyeron siempre, ANTES de elegir: el filtrado con
     // mipmaps compara coordenadas de píxeles vecinos y dentro de un if eso no

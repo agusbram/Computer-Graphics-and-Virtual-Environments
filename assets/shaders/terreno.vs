@@ -1,12 +1,17 @@
-#version 460 core
+// Sin #version: desde el Práctico 09 la agrega la clase Shader a todas las etapas (ver Shader.cpp).
 
 // -----------------------------------------------------------------------------
-// terreno.vs — vertex shader del TERRENO (Práctico 08)
+// terreno.vs — vertex shader del TERRENO (Prácticos 08 y 09)
 //
 // Hasta el Práctico 07 el terreno y el avión compartían solid.vs. Desde el
 // Práctico 08 cada tipo de objeto tiene su PROPIO programa (terreno, aeronave y
 // fondo), como proponen las guías 08 y 09: el terreno necesita el morph del LOD
 // y la escala de la textura; el avión no.
+//
+// Práctico 09 (Parte 1): en lugar de la distancia a la cámara (vDistancia), el
+// vertex shader manda la POSICIÓN EN MUNDO del vértice (vPosMundo). Con ella el
+// fragment shader calcula la niebla (aplicar_niebla, código común) y, desde la
+// Parte 2, la iluminación.
 //
 // Atributos (armados por Mesh::load):
 //   location 0 -> aPos       posición LOCAL del vértice en su nivel del clipmap
@@ -26,9 +31,9 @@ layout (location = 3) in float aZc;          // altura que tendría este punto e
 
 // SALIDAS (out): van al fragment shader. La GPU las INTERPOLA entre los 3
 // vértices de cada triángulo; terreno.fs las recibe con el MISMO nombre (in).
-out vec3  vNormal;      // la normal, sin cambios (la usará la luz del P09)
+out vec3  vNormal;      // la normal, sin cambios (la usará la luz del P09, Parte 2)
 out vec2  vTexCoord;    // P08: coordenadas de textura, en TESELAS (1 unidad = una copia del pasto)
-out float vDistancia;   // distancia del vértice a la cámara (para la niebla)
+out vec3  vPosMundo;    // P09: posición del vértice en MUNDO (origen flotante: relativa al avión)
 
 // UNIFORMS: un valor para TODO el dibujo (igual en todos los vértices). Los
 // manda C++ con Shader::set_uniform antes de dibujar.
@@ -67,9 +72,11 @@ void main()
     // fraccionaria). El morph no las cambia: solo mueve z, no (x, y).
     vTexCoord = aTexCoords / uTamTesela;
 
-    // --- Posición: P · V · M (en dos pasos para la niebla) -------------------
-    // posVista = el vértice en el sistema de la CÁMARA (después de M y V).
-    vec4 posVista = uView * uModel * vec4(pos, 1.0);
-    vDistancia    = length(posVista.xyz);   // la cámara está en el origen de la vista
-    gl_Position   = uProjection * posVista;   // salida obligatoria: posición en recorte
+    // --- Posición: P · V · M (en dos pasos: el primero da la posición en mundo)
+    // posMundo = el vértice después de la matriz de modelo. "Mundo" acá es el
+    // sistema con ORIGEN FLOTANTE (el avión en el origen): uModel traslada el
+    // nivel a (esquina - avión). Es el mismo sistema del ojo (uOjo) y del sol.
+    vec4 posMundo = uModel * vec4(pos, 1.0);
+    vPosMundo     = posMundo.xyz;
+    gl_Position   = uProjection * uView * posMundo;   // salida obligatoria: posición en recorte
 }

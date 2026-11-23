@@ -62,7 +62,7 @@ un `main.cpp` gigante.
 |---|---|---|---|
 | `Application · main.cpp` | aplicación | inicializa todo, corre el game loop, orquesta | lógica de negocio |
 | `ResourceManager` | transversal | carga y cachea shaders, texturas y modelos por nombre | nada gráfico directo |
-| `Shader` | infraestructura | compila, linkea y setea uniforms | decidir qué se dibuja |
+| `Shader` | infraestructura | compila (P09: varios archivos por etapa + `#version`), linkea y setea uniforms | decidir qué se dibuja |
 | `Mesh` | infraestructura | posee VAO/VBO/EBO, carga bytes | saber qué representa |
 | `Texture` (P08) | infraestructura | posee una textura de la GPU (2D / cubemap / 1D): 4 etapas DSA, mipmaps, muestreo | leer archivos (eso es de `ResourceManager`) |
 | `primitives` | infraestructura | genera geometría a partir de medidas | saber dónde va |
@@ -81,6 +81,8 @@ un `main.cpp` gigante.
 | `FlightData` | pitch, roll, hdg (rumbo), etc. |
 | `CircuitState` | waypoints (circuito / checkpoints) |
 | `CameraData` | datos de la cámara |
+| `Iluminacion` (P09) | sol (dirección, color), luz ambiente y niebla de la escena: un solo lugar, lo leen los tres programas |
+| `ShaderSource` (P09) | fuente de un programa: lista de archivos por etapa (lo llena `ResourceManager`, lo compila `Shader`) |
 
 ### Criterio para módulos nuevos (por funcionalidad)
 

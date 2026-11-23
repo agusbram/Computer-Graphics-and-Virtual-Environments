@@ -38,12 +38,31 @@
 //      lo elimino por no usarse, glGetUniformLocation devuelve -1 y loc()
 //      avisa por consola. Pasar -1 a glProgramUniform* no es error: la
 //      llamada se ignora en silencio.
+//
+// Ampliación Práctico 09 (Parte 1) — código GLSL COMÚN:
+//   8. VARIOS ARCHIVOS POR ETAPA. compile_from_source recibe el ShaderSource
+//      completo (una lista de archivos por etapa, ver ShaderSource.h) y le
+//      pasa a glShaderSource un ARREGLO de cadenas: la GPU las compila como un
+//      único texto, una a continuación de la otra.
+//   9. #version LO AGREGA SHADER, EN TODAS LAS ETAPAS (pregunta 2). Esa línea
+//      tiene que ser la primera del texto completo, así que no puede estar
+//      adentro de ningún archivo (si iluminacion.glsl + terreno.fs la tuvieran,
+//      quedaría en el medio). Ningún archivo de assets/shaders la tiene.
+//   10. EL ERROR DICE QUÉ ARCHIVO FALLÓ. Cada archivo es una cadena aparte y
+//      empieza con "#line 1 N": el log del driver informa "N:línea" con N = el
+//      número de archivo y la línea contada desde el principio de ESE archivo.
+//      Al fallar, se imprime además qué archivo es cada N.
+//   11. loc(nombre, false): búsqueda SIN aviso, para los uniforms de la escena
+//      (sol, ojo, niebla). Vienen del código común y un programa puede no
+//      usar algunos (el compilador los elimina): ahí -1 es lo esperado.
 // -----------------------------------------------------------------------------
 
 #pragma once
 
 #include <glm/glm.hpp>  // glm::mat4, vec3, vec2: tipos de los uniforms (set_uniform)
-#include <string>       // std::string: código fuente de los shaders y nombres de uniforms
+#include <string>       // std::string: nombres de los uniforms
+
+#include "core/ShaderSource.h"   // ShaderSource: el fuente (P09: lista de archivos por etapa)
 
 class Shader {
 public:
@@ -55,19 +74,21 @@ public:
     Shader(Shader&& other) noexcept;
     Shader& operator=(Shader&& other) noexcept;
 
-    // Compila las dos etapas, las linkea y libera los objetos intermedios.
-    // true en exito. Si algo falla se imprime el log del driver y el objeto
-    // queda vacio (id() == 0).
-    bool compile_from_source(const std::string& vs, const std::string& fs);
+    // Compila las etapas (vertex, fragment y, si hay, geometry), las linkea y
+    // libera los objetos intermedios. A cada etapa le antepone la línea
+    // #version. true en exito. Si algo falla se imprime el log del driver (con
+    // qué archivo es cada número de cadena) y el objeto queda vacio (id() == 0).
+    bool compile_from_source(const ShaderSource& fuente);
     void use(void) const;
     void clear(void);
 
     // Ubicacion de un uniform en el programa linkeado. Consultar UNA vez y
     // guardar el entero para no buscar el string en cada cuadro. Devuelve -1
-    // (y avisa por consola) si el uniform no existe o fue eliminado por no
-    // usarse. El valor guardado deja de ser valido si se recompila el
-    // programa (compile_from_source vuelve a linkear).
-    int loc(const std::string& nombre) const;
+    // si el uniform no existe o fue eliminado por no usarse; en ese caso avisa
+    // por consola, salvo que avisar_si_falta sea false (P09: uniforms de la
+    // escena que un programa puede no usar). El valor guardado deja de ser
+    // valido si se recompila el programa (compile_from_source vuelve a linkear).
+    int loc(const std::string& nombre, bool avisar_si_falta = true) const;
 
     // Setters por ubicacion cacheada (para el loop de dibujado).
     void set_uniform(int ubicacion, const glm::mat4& m) const;

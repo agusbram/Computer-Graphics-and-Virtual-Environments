@@ -1,4 +1,4 @@
-# CGyAV — Proyecto OpenGL (template + Prácticos 01 a 08)
+# CGyAV — Proyecto OpenGL (template + Prácticos 01 a 09)
 
 Proyecto base de **Computación gráfica y ambientes virtuales (0494)** — CRUC-IUA.
 Template de aplicación OpenGL moderna (core profile 4.6) con GLFW + GLAD sobre el
@@ -49,6 +49,13 @@ que se desarrollan los prácticos del proyecto integrador
   (módulo `Skybox`, vista sin traslación, método `z = w`) o un **degradé 1D**;
   y **suelo continuado** en el fondo para tapar la banda del "problema de la
   altitud".
+- **Práctico 09** — *Iluminación y niebla* (en curso, parte por parte):
+  - *Parte 1* ✔: la iluminación como **código GLSL compartido**.
+    `iluminacion.glsl` se pega delante de cada fragment shader (`glShaderSource`
+    con varias cadenas). La línea `#version` la agrega `Shader`, y los errores
+    informan el archivo y la línea. Los parámetros de la luz y la niebla están en
+    un único lugar de la CPU (struct `Iluminacion`), que se envía a los tres
+    programas.
 
 ---
 
@@ -91,7 +98,8 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
 
 ```
 ├── assets/
-│   ├── shaders/            # fuentes GLSL externos:
+│   ├── shaders/            # fuentes GLSL externos (SIN #version: la agrega Shader, P09):
+│   │                       #   iluminacion.glsl (código COMÚN: luz + niebla)     — P09
 │   │                       #   terreno.*  (morph del LOD + pasto + niebla)       — P08
 │   │                       #   aeronave.* (color, chapa o imagen de prueba)       — P08
 │   │                       #   fondo.*    (cielo cubemap/degradé + suelo continuado) — P08
@@ -105,7 +113,9 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
 │   └── core/
 │       ├── MeshData.h          # tupla Vertex {position, normal, tex_coords, altura_gruesa} (glm)
 │       ├── Mesh.h/.cpp         # dueño del VAO/VBO/EBO (DSA 4.5, 4 atributos; re-subida de vértices e índices)
-│       ├── Shader.h/.cpp       # dueño del programa linkeado + uniforms (DSA)
+│       ├── Shader.h/.cpp       # dueño del programa linkeado + uniforms (DSA); P09: varios archivos por etapa
+│       ├── ShaderSource.h      # fuente de un programa: lista de archivos por etapa (P09)
+│       ├── Iluminacion.h/.cpp  # sol + niebla de la escena: un solo lugar en la CPU (P09)
 │       ├── Primitives.h/.cpp   # cube(), cylinder(), cone() y sphere() (opcional)
 │       ├── Aircraft.h/.cpp     # modelo de la aeronave: piezas + locales + pose
 │       ├── RenderItem.h        # item de dibujo {mesh, model, color, morph, textura, escala_uv} (P04; LOD P07; textura P08)
@@ -146,6 +156,9 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
 ├── Practico08-Consultas.md        # FAQ del P08: vista sin traslación, xyww, culling, tesela, uniforms...
 ├── docs-p08/img/                  # capturas del P08 (cielo, prueba UV, mipmaps, banda)
 ├── Practico09-Pendientes.md       # qué queda para el P09 y por qué no se hizo en el P08
+├── Practico09-Decisiones.md       # apuntes del P09: decisiones tomadas (1-15) + cada parte hecha
+├── Practico09-Consultas.md        # FAQ del P09
+├── docs-p09/img/                  # capturas del P09
 └── Arquitectura-Proyecto.md       # arquitectura en capas (destino del proyecto, para más adelante)
 ```
 
@@ -165,7 +178,9 @@ repetida con otros archivos, excepciones ante archivo faltante o clave inexisten
 y comportamiento de `clear()`. **Práctico 08:** carga de imágenes en RGBA, caché
 de imágenes, **volteo vertical** (la fila 0 con flip es la última sin flip),
 aviso ante la misma clave con otro flip, `unload_image` y error ante una imagen
-inexistente.
+inexistente. **Práctico 09:** listas de archivos por etapa: código común y propio
+en orden, cada texto terminado en `\n`, la misma clave con otro orden da un aviso,
+y una lista vacía lanza una excepción.
 
 ## Módulo ResourceManager (Práctico 01 — Parte 2)
 
@@ -383,10 +398,32 @@ Losasso & Hoppe 2004 y GPU Gems 2 cap. 2).
 
 Ver [`Practico08-Decisiones.md`](Practico08-Decisiones.md) y [`Practico08-Consultas.md`](Practico08-Consultas.md). Lo que queda para el Práctico 09 está en [`Practico09-Pendientes.md`](Practico09-Pendientes.md).
 
+## Iluminación y niebla (Práctico 09)
+
+Se hace **parte por parte**. Hecho hasta ahora:
+
+| Pieza | Cambio |
+|---|---|
+| `assets/shaders/iluminacion.glsl` (nuevo) | Código **común** a los tres fragment shaders: uniforms de la escena (sol, ojo, niebla), `struct Material`, `iluminar()` (Phong, direccional) y `aplicar_niebla(color, P)`. |
+| `ShaderSource.h` (nuevo) | Una lista de archivos por etapa (rutas + textos). |
+| `ResourceManager` | `load_shader_source(key, {vs...}, {fs...})`: un texto por archivo, en orden. |
+| `Shader` | `compile_from_source(ShaderSource)`: `#version` + `#line 1 N` + cada archivo; el error dice `archivo:línea`. `loc(nombre, false)` busca sin aviso. |
+| `Iluminacion.h/.cpp` (nuevo) | El struct `Iluminacion` (una instancia, `luz`, en `main`) + buscar/enviar sus uniforms por programa, en cada cuadro. |
+| Shaders | Sin `#version` (la agrega `Shader`); la niebla ya no está repetida; los vertex mandan `vPosMundo`. |
+
+- **Parte 1 = reorganización:** la imagen sale igual que en el P08 (verificado con capturas). La niebla sigue siendo lineal hasta la Parte 4.
+- **Arreglo:** un shader que no compila ya no hace caer el programa (se lanza una excepción en vez de cerrar la ventana antes de destruir los `Shader`).
+
+Ver [`Practico09-Decisiones.md`](Practico09-Decisiones.md) y [`Practico09-Consultas.md`](Practico09-Consultas.md).
+
 ## Documentación de los prácticos
 
 - [`Arquitectura-Proyecto.md`](Arquitectura-Proyecto.md) — arquitectura en capas
   del proyecto (aplicación / sistemas / datos), destino del simulador.
+- [`Practico09-Decisiones.md`](Practico09-Decisiones.md) — iluminación y niebla:
+  las 15 decisiones de diseño tomadas antes de implementar y cada parte hecha
+  (Parte 1: código GLSL común, `#version` y `#line`, struct `Iluminacion`).
+- [`Practico09-Consultas.md`](Practico09-Consultas.md) — FAQ del P09.
 - [`Practico08-Decisiones.md`](Practico08-Decisiones.md) — texturas y cielo:
   `ImageData`/`load_image` (flip, RGBA, `unload_image`), módulo `Texture` (4 etapas
   DSA, mipmaps, la trampa), `(u, v)` del terreno en coordenadas de mundo, imagen de

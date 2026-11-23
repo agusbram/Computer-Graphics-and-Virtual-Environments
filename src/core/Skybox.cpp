@@ -94,7 +94,8 @@ glm::vec3 cubemap_a_escena(const glm::vec3& g)
 void Skybox::init(const ShaderSource& fuente, const std::array<const ImageData*, 6>& caras)
 {
     // --- Programa de shaders del fondo ---------------------------------------
-    if (!shader_.compile_from_source(fuente.vs, fuente.fs)) {
+    // P09: el fuente es #version + iluminacion.glsl + fondo.fs (lo pide main).
+    if (!shader_.compile_from_source(fuente)) {
         throw std::runtime_error("Skybox: el programa del fondo no compiló");
     }
     loc_proyeccion_       = shader_.loc("uProjection");
@@ -104,9 +105,9 @@ void Skybox::init(const ShaderSource& fuente, const std::array<const ImageData*,
     loc_ojo_uv_           = shader_.loc("uOjoUV");
     loc_altura_ojo_       = shader_.loc("uAlturaOjo");
     loc_tam_tesela_       = shader_.loc("uTamTesela");
-    loc_niebla_color_     = shader_.loc("uNieblaColor");
-    loc_niebla_inicio_    = shader_.loc("uNieblaInicio");
-    loc_niebla_fin_       = shader_.loc("uNieblaFin");
+    // Práctico 09: los uniforms de la escena (código común), con el mismo
+    // ayudante que usa main para el terreno y el avión.
+    u_iluminacion_ = buscar_uniforms_iluminacion(shader_, "fondo");
 
     // --- Geometría: el cubo de las primitivas (Práctico 03) ------------------
     // Ya está centrado en su origen, que es lo que hace falta: la posición de
@@ -271,9 +272,12 @@ void Skybox::draw(const ParametrosFondo& p) const
     shader_.set_uniform(loc_ojo_uv_, p.ojo_uv);
     shader_.set_uniform(loc_altura_ojo_, p.altura_ojo);
     shader_.set_uniform(loc_tam_tesela_, p.tam_tesela);
-    shader_.set_uniform(loc_niebla_color_, p.niebla_color);
-    shader_.set_uniform(loc_niebla_inicio_, p.niebla_inicio);
-    shader_.set_uniform(loc_niebla_fin_, p.niebla_fin);
+    // Práctico 09: sol, niebla y ojo de la ESCENA, del mismo struct que usan el
+    // terreno y el avión (así el suelo continuado recibe exactamente la misma
+    // niebla que la malla y no se ve el borde).
+    if (p.iluminacion != nullptr) {
+        enviar_iluminacion(shader_, u_iluminacion_, *p.iluminacion, p.ojo);
+    }
 
     // 2) Texturas en sus unidades (las mismas del layout(binding) de fondo.fs).
     //    La GPU tiene varias UNIDADES DE TEXTURA numeradas (0, 1, 2, ...), como

@@ -1,5 +1,17 @@
 // -----------------------------------------------------------------------------
-// main.cpp — la aplicación (Prácticos 04 a 08)
+// main.cpp — la aplicación (Prácticos 04 a 09)
+//
+// Lo nuevo del Práctico 09 (iluminación y niebla), Parte 1 — la iluminación como
+// código COMPARTIDO entre shaders:
+//   1. Cada fragment shader se arma con VARIOS archivos:
+//        #version (la agrega Shader) + iluminacion.glsl (común) + el propio.
+//      Acá se ve, al cargar cada programa, qué archivos usa.
+//   2. Los parámetros de la luz y la niebla viven en UN SOLO LUGAR del lado de
+//      la CPU: la instancia `luz` (struct Iluminacion). En cada cuadro se envía
+//      a los TRES programas (terreno, aeronave y, por ParametrosFondo, el fondo)
+//      junto con la posición del ojo en mundo (origen flotante).
+//   3. La niebla sigue siendo la LINEAL del Práctico 08 (ahora en el código
+//      común): la imagen tiene que salir igual que en el 08.
 //
 // Lo nuevo del Práctico 08 (texturas y cielo):
 //   1. TEXTURAS: ResourceManager decodifica las imágenes (stb_image) y la clase
@@ -45,6 +57,7 @@
 #include <exception>        // std::exception
 #include <iostream>         // std::cout, std::endl, std::cerr
 #include <set>              // std::set (para contar mallas distintas)
+#include <stdexcept>        // std::runtime_error: un programa de shaders que no compila (P09)
 #include <string>           // std::string
 #include <utility>          // std::pair
 #include <vector>           // std::vector
@@ -62,6 +75,7 @@
 #include "core/Aircraft.h"                     // Aircraft: el avión armado con primitivas
 #include "core/CameraSystem.h"                 // CameraSystem: la cámara que sigue al avión
 #include "core/FlightData.h"                   // FlightData y to_world: pasar el estado del FDM a la escena
+#include "core/Iluminacion.h"                  // Iluminacion: sol y niebla de la escena, un solo lugar (P09)
 #include "core/InputHandler.h"                 // InputHandler: teclado (mandos) y mouse (cámara)
 #include "core/ResourceManager.h"              // ResourceManager: carga shaders e imágenes desde assets/
 #include "core/Shader.h"                       // Shader: los programas "terreno" y "aeronave"
@@ -70,7 +84,7 @@
 #include "core/Texture.h"                      // Texture: pasto, imagen de prueba, chapa y camuflaje
 
 // Datos básicos de la ventana
-static const char* kWindowTitle     = "Práctico 08 - Texturas y cielo"; // Título
+static const char* kWindowTitle     = "Práctico 09 - Iluminación y niebla"; // Título
 static constexpr int kWindowWidth   = 800;  // Ancho inicial en píxeles
 static constexpr int kWindowHeight  = 600;  // Alto inicial en píxeles
 static constexpr int kGLVerMajor    = 4;    // Versión mayor de OpenGL pedida
@@ -130,12 +144,14 @@ struct UniformsPieza {
     int modelo = -1, color = -1, usar_textura = -1, escala_uv = -1, morph = -1;
 };
 
-// Práctico 08: uniforms de ESCENA de un programa (cámara y niebla): iguales para
-// todas las piezas, se suben una vez por cuadro. Con glProgramUniform* cada
-// programa tiene SUS PROPIOS uniforms aunque se llamen igual, por eso se buscan
-// y se envían por separado a cada uno.
+// Práctico 08: uniforms de la CÁMARA de un programa: iguales para todas las
+// piezas, se suben una vez por cuadro. Con glProgramUniform* cada programa
+// tiene SUS PROPIOS uniforms aunque se llamen igual, por eso se buscan y se
+// envían por separado a cada uno. (Práctico 09: los de la niebla salieron de
+// acá; ahora son parte de los uniforms de la escena del código común, ver
+// UniformsIluminacion en Iluminacion.h.)
 struct UniformsEscena {
-    int proyeccion = -1, vista = -1, niebla_color = -1, niebla_inicio = -1, niebla_fin = -1;
+    int proyeccion = -1, vista = -1;
 };
 
 static UniformsEscena buscar_uniforms_escena(const Shader& shader)
@@ -143,9 +159,6 @@ static UniformsEscena buscar_uniforms_escena(const Shader& shader)
     UniformsEscena u;
     u.proyeccion    = shader.loc("uProjection");
     u.vista         = shader.loc("uView");
-    u.niebla_color  = shader.loc("uNieblaColor");
-    u.niebla_inicio = shader.loc("uNieblaInicio");
-    u.niebla_fin    = shader.loc("uNieblaFin");
     return u;
 }
 
@@ -237,23 +250,34 @@ int main()
         ResourceManager resources(kAssetsRoot);
         // Práctico 08: un programa por tipo de objeto (las guías 08 y 09
         // proponen shaders separados para el terreno, el fondo y la aeronave).
+        // Práctico 09 (Parte 1): cada etapa es una LISTA de archivos, que se
+        // pegan en ese orden. Los tres fragment shaders llevan ADELANTE el
+        // código común (iluminacion.glsl): la misma luz y la misma niebla para
+        // los tres. Los vertex shaders siguen siendo de un solo archivo.
+        const std::string kComun = "shaders/iluminacion.glsl";
         const ShaderSource& src_terreno = resources.load_shader_source(
-            "terreno", "shaders/terreno.vs", "shaders/terreno.fs");
+            "terreno", {"shaders/terreno.vs"}, {kComun, "shaders/terreno.fs"});
         const ShaderSource& src_aeronave = resources.load_shader_source(
-            "aeronave", "shaders/aeronave.vs", "shaders/aeronave.fs");
+            "aeronave", {"shaders/aeronave.vs"}, {kComun, "shaders/aeronave.fs"});
         const ShaderSource& src_fondo = resources.load_shader_source(
-            "fondo", "shaders/fondo.vs", "shaders/fondo.fs");
+            "fondo", {"shaders/fondo.vs"}, {kComun, "shaders/fondo.fs"});
 
         {
             Shader shader_terreno;
             Shader shader_aeronave;
-            if (!shader_terreno.compile_from_source(src_terreno.vs, src_terreno.fs) ||
-                !shader_aeronave.compile_from_source(src_aeronave.vs, src_aeronave.fs)) {
-                std::cout << "Un programa de shaders quedó vacío; saliendo sin "
-                             "dibujar." << std::endl;
-                glfwDestroyWindow(window);
-                glfwTerminate();
-                return EXIT_FAILURE;
+            // Si un programa no compila, se LANZA una excepción (como hace
+            // Skybox::init) en lugar de cerrar la ventana acá y salir con
+            // return. Motivo (P09, al probar los mensajes de error): con el
+            // return, la ventana y el CONTEXTO de OpenGL se destruían ANTES de
+            // salir de este bloque, y después los destructores de los Shader
+            // llamaban a glDeleteProgram sin contexto -> violación de segmento.
+            // Con la excepción, al salir del bloque se destruyen primero los
+            // Shader (con el contexto vivo) y recién en el catch se cierra la
+            // ventana. El log del driver ya se imprimió en compile_from_source.
+            if (!shader_terreno.compile_from_source(src_terreno) ||
+                !shader_aeronave.compile_from_source(src_aeronave)) {
+                throw std::runtime_error("un programa de shaders quedó vacío "
+                                         "(ver el log de arriba); saliendo sin dibujar");
             }
 
             // Uniforms de cada programa (se buscan una vez). Los de la cámara y
@@ -272,11 +296,18 @@ int main()
             const UniformsEscena ue_terreno  = buscar_uniforms_escena(shader_terreno);
             const UniformsEscena ue_aeronave = buscar_uniforms_escena(shader_aeronave);
             const int loc_tam_tesela = shader_terreno.loc("uTamTesela");
+            // Práctico 09: los uniforms de la ESCENA (sol, ojo, niebla) del
+            // código común, en cada programa. Se informa por consola cuántos usa
+            // cada uno (en la Parte 1 nadie usa todavía los del sol).
+            const UniformsIluminacion ul_terreno  = buscar_uniforms_iluminacion(shader_terreno, "terreno");
+            const UniformsIluminacion ul_aeronave = buscar_uniforms_iluminacion(shader_aeronave, "aeronave");
 
             // Niebla lineal (mejora leve del P07): empieza a 300 u (3 km) y es
             // total a 1800 u (18 km), antes del borde del clipmap (2560 u) y del
             // far (3000 u). Su COLOR, desde el P08, es el del horizonte del
             // cielo (lo calcula el Skybox al cargar el cubemap, más abajo).
+            // P09: son los valores iniciales de `luz` (más abajo); la niebla
+            // pasa a la exponencial en la Parte 4.
             const float kNieblaInicio = 300.0f;
             const float kNieblaFin    = 1800.0f;
 
@@ -412,6 +443,21 @@ int main()
                           << s.z << "), elevacion " << fondo.elevacion_sol_grados()
                           << " grados" << std::endl;
             }
+
+            // --- Luz y niebla de la escena (Práctico 09, Parte 1) -----------
+            // UN SOLO LUGAR del lado de la CPU para los parámetros de la luz y
+            // de la niebla: esta instancia. Desde acá se envían, en cada
+            // cuadro, a los tres programas. El sol apunta al sol PINTADO en el
+            // cubemap (lo calculó el Skybox) para que la luz venga de donde se
+            // lo ve; el color y el ambiente quedan en 0,7 y 0,3 (los de la
+            // guía: suman 1).
+            // niebla_color y niebla_fin NO se cargan acá: dependen de las
+            // teclas K (cielo activo) y N (niebla on/off), así que se asignan
+            // en el bucle, en cada cuadro, antes de enviar `luz` (un solo
+            // lugar que los escribe). El primer cuadro ya pasa por ahí.
+            Iluminacion luz;
+            luz.sol_dir       = fondo.direccion_sol();
+            luz.niebla_inicio = kNieblaInicio;
 
             // 4) Decisión 1: la GPU ya tiene su copia -> se libera la de la CPU
             //    (el cubemap solo son ~19 MB en RGBA). Las referencias img_* y
@@ -634,14 +680,15 @@ int main()
                     }
                 }
 
-                // Color de la NIEBLA = horizonte del cielo (el mismo para el
-                // cubemap y el degradé). El clear usa el mismo color, aunque el
+                // Color de la NIEBLA = horizonte del cielo ACTIVO (cubemap o
+                // degradé, tecla K). El clear usa el mismo color, aunque el
                 // fondo tapa toda la pantalla.
-                const glm::vec3 color_niebla = fondo.color_horizonte();
-                const float niebla_fin = ctx.niebla ? kNieblaFin : 0.0f;
-
-                // niebla_fin = 0 es la señal de "niebla apagada" (tecla N): los
-                // shaders no aplican niebla si uNieblaFin <= 0.
+                // P09: se actualiza en `luz`, el único lugar de estos datos.
+                luz.niebla_color = fondo.color_horizonte();
+                // niebla_fin = 0 es la señal de "niebla apagada" (tecla N): el
+                // código común no aplica niebla si uNieblaFin <= 0.
+                luz.niebla_fin = ctx.niebla ? kNieblaFin : 0.0f;
+                const glm::vec3 color_niebla = luz.niebla_color;
                 //
                 // Borrar la pantalla al empezar el cuadro, en dos pasos:
                 //   glClearColor: solo ELIGE el color de borrado (R, G, B, A en
@@ -663,18 +710,24 @@ int main()
                 glPolygonMode(GL_FRONT_AND_BACK,
                               ctx.wireframe ? GL_LINE : GL_FILL);
 
-                // Uniforms de ESCENA (iguales para todas las piezas), por
+                // Uniforms de la CÁMARA (iguales para todas las piezas), por
                 // programa: con glProgramUniform* cada programa tiene los suyos.
                 const std::pair<const Shader*, const UniformsEscena*> programas[] = {
                     {&shader_terreno, &ue_terreno}, {&shader_aeronave, &ue_aeronave}};
                 for (const auto& [sh, ue] : programas) {
                     sh->set_uniform(ue->proyeccion, camara.data().projection);
                     sh->set_uniform(ue->vista, camara.data().view);
-                    sh->set_uniform(ue->niebla_color, color_niebla);
-                    sh->set_uniform(ue->niebla_inicio, kNieblaInicio);
-                    sh->set_uniform(ue->niebla_fin, niebla_fin);
                 }
                 shader_terreno.set_uniform(loc_tam_tesela, kTamTesela);
+
+                // Práctico 09: la luz y la niebla de la ESCENA (struct `luz`) y
+                // el ojo en mundo, a cada programa. El ojo es ojo_rel (relativo
+                // al avión): es el MISMO sistema en el que los vertex shaders
+                // dejan vPosMundo (origen flotante). Con el ojo en otro sistema
+                // (ojo_mundo) la distancia de la niebla saldría mal.
+                // El fondo los recibe por ParametrosFondo (más abajo).
+                enviar_iluminacion(shader_terreno, ul_terreno, luz, ojo_rel);
+                enviar_iluminacion(shader_aeronave, ul_aeronave, luz, ojo_rel);
 
                 // LISTAS DE DIBUJO: cada módulo arma su parte como RenderItem(s)
                 // (malla + modelo + color + textura). El main no sabe cuántas
@@ -700,9 +753,8 @@ int main()
                 pf.tam_tesela  = kTamTesela;
                 pf.suelo       = textura_suelo;
                 pf.suelo_continuado = ctx.suelo_continuado;
-                pf.niebla_color  = color_niebla;
-                pf.niebla_inicio = kNieblaInicio;
-                pf.niebla_fin    = niebla_fin;
+                pf.iluminacion = &luz;      // P09: la MISMA luz y niebla que la malla
+                pf.ojo         = ojo_rel;   // P09: el ojo en mundo (origen flotante)
                 fondo.draw(pf);
 
                 glfwSwapBuffers(window);

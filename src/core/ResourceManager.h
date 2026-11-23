@@ -47,6 +47,22 @@
 //   8. unload_image(key): libera la copia de la CPU cuando la GPU ya tiene la
 //      suya (un cubemap de 6 x 900 x 900 en RGBA ocupa ~19 MB que no se vuelven
 //      a usar). Costo: si se la vuelve a pedir, hay que releer el disco.
+//
+// Práctico 09 (Parte 1) — VARIOS ARCHIVOS POR ETAPA. load_shader_source recibe
+// una LISTA de archivos por etapa (antes, uno solo) para poder pegar el código
+// GLSL común (iluminacion.glsl) delante del código propio de cada shader:
+//   load_shader_source("terreno", {"shaders/terreno.vs"},
+//                      {"shaders/iluminacion.glsl", "shaders/terreno.fs"});
+//   9. SE REEMPLAZÓ LA FIRMA (no se agregó una sobrecarga): hay un solo camino
+//      para cargar shaders. Un programa de un solo archivo por etapa se escribe
+//      igual, con listas de un elemento.
+//   10. CADA ARCHIVO QUEDA COMO UN TEXTO APARTE (no se concatenan acá): Shader
+//      los pasa como cadenas distintas a glShaderSource y el log de error del
+//      driver dice en QUÉ archivo está el error (ver Shader.cpp).
+//   11. La clave repetida se compara con la LISTA completa de archivos (mismos
+//      archivos, en el mismo orden) para decidir si es el mismo pedido.
+//   El struct ShaderSource pasó a su propio encabezado (ShaderSource.h): lo
+//   comparten ResourceManager (lo llena) y Shader (lo compila).
 // -----------------------------------------------------------------------------
 
 #pragma once
@@ -54,14 +70,9 @@
 #include <filesystem>     // std::filesystem::path: la carpeta assets y las rutas de los archivos
 #include <string>         // std::string: claves del caché, rutas y código de los shaders
 #include <unordered_map>  // std::unordered_map: los cachés (clave -> shader / imagen)
-#include <vector>         // std::vector: los bytes de la imagen (ImageData::pixels)
+#include <vector>         // std::vector: los bytes de la imagen (ImageData::pixels) y las listas de archivos
 
-// Codigo fuente de un programa de shader, tal como se leyo de disco.
-struct ShaderSource {
-    std::string vs;             // vertex shader
-    std::string fs;             // fragment shader
-    std::string gs;             // geometry shader (opcional, hoy no se usa)
-};
+#include "core/ShaderSource.h"   // ShaderSource / ShaderStageSource: el fuente de un programa (P09: varios archivos por etapa)
 
 // Imagen decodificada, lista para subir a la GPU (Práctico 08). C++ puro.
 // Fila 0 de `pixels` = fila de ABAJO si se cargó con flip (convención OpenGL),
@@ -120,17 +131,19 @@ public:
     // Lanza std::runtime_error si la carpeta no existe o no es un directorio.
     explicit ResourceManager(const std::filesystem::path& assets_root);
 
-    // Lee vs_file y fs_file (y gs_file si no es vacio) desde
-    // assets_root / <archivo> y guarda el resultado bajo key.
+    // Lee los archivos de cada etapa desde assets_root / <archivo>, en el orden
+    // de la lista, y guarda el resultado bajo key. Cada archivo queda como un
+    // texto aparte (ShaderStageSource). gs_files es opcional (lista vacía).
     // - Primera vez: lee del disco.
-    // - Clave ya cargada con mismos archivos: devuelve el cache (sin leer).
-    // - Clave ya cargada con otros archivos: avisa por stderr y devuelve
+    // - Clave ya cargada con las mismas listas: devuelve el cache (sin leer).
+    // - Clave ya cargada con otras listas: avisa por stderr y devuelve
     //   el cache existente.
-    // Lanza std::runtime_error si algun archivo falta o no se puede leer.
+    // Lanza std::runtime_error si la lista del vertex o del fragment está
+    // vacía, o si algún archivo falta o no se puede leer.
     const ShaderSource& load_shader_source(const std::string& key,
-                                           const std::string& vs_file,
-                                           const std::string& fs_file,
-                                           const std::string& gs_file = "");
+                                           const std::vector<std::string>& vs_files,
+                                           const std::vector<std::string>& fs_files,
+                                           const std::vector<std::string>& gs_files = {});
 
     // Devuelve el recurso asociado a key SIN tocar disco.
     // Lanza std::runtime_error si la clave no fue cargada antes.
@@ -165,15 +178,9 @@ private:
     std::string read_shader_file(const std::string& shader_file,
                                  const std::string& shader_type);
 
-    // Entrada interna del cache: ademas del fuente, recuerda QUE archivos
-    // originaron la carga para poder avisar cuando una clave repetida llega
-    // con archivos distintos.
-    struct CachedShader {
-        ShaderSource source;
-        std::string vs_file;
-        std::string fs_file;
-        std::string gs_file;
-    };
+    // Práctico 09: lee TODOS los archivos de una etapa, en orden.
+    ShaderStageSource read_shader_stage(const std::vector<std::string>& files,
+                                        const std::string& shader_type);
 
     // Entrada del caché de imágenes: la imagen + con qué archivo y qué flip se
     // cargó (para avisar si la misma clave llega con otros datos).
@@ -184,6 +191,9 @@ private:
     };
 
     std::filesystem::path assets_root_;
-    std::unordered_map<std::string, CachedShader> shaders_sources_;
+    // Caché de shaders. Desde el Práctico 09 no hace falta una entrada aparte
+    // con los nombres de los archivos: cada ShaderStageSource ya los guarda
+    // (`files`), y con eso se detecta la clave repetida con otros archivos.
+    std::unordered_map<std::string, ShaderSource> shaders_sources_;
     std::unordered_map<std::string, CachedImage> images_;
 };

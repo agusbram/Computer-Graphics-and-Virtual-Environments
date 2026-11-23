@@ -1,19 +1,26 @@
-#version 460 core
+// Sin #version: desde el Práctico 09 la agrega la clase Shader a todas las etapas (ver Shader.cpp).
 
 // -----------------------------------------------------------------------------
-// terreno.fs — fragment shader del TERRENO (Práctico 08)
+// terreno.fs — fragment shader del TERRENO (Prácticos 08 y 09)
 //
 // Con una TEXTURA el color deja de ser uno por objeto (o uno por vértice
 // interpolado) y pasa a decidirse PUNTO POR PUNTO: cada fragmento lee la imagen
-// en sus coordenadas (u, v) interpoladas. En este práctico la textura
-// REEMPLAZA al color; en el Práctico 09 pasa a ser el coeficiente kd de la luz.
+// en sus coordenadas (u, v) interpoladas. En el Práctico 08 la textura
+// REEMPLAZA al color; en el Práctico 09 (Parte 2) pasa a ser el coeficiente kd
+// de la luz.
+//
+// Práctico 09 (Parte 1): este archivo ya NO es el texto completo. El programa
+// se arma con   #version + iluminacion.glsl + terreno.fs   (en ese orden), así
+// que acá se pueden usar los uniforms, el struct Material y las funciones
+// iluminar() y aplicar_niebla() del código común sin declararlos. La niebla
+// que antes estaba repetida acá se borró: es la de iluminacion.glsl.
 // -----------------------------------------------------------------------------
 
 // ENTRADAS (in): las salidas de terreno.vs, INTERPOLADAS por la GPU para este
 // fragmento (mismo nombre y tipo que los out del vertex shader).
-in vec3  vNormal;      // normal interpolada (sin usar hasta la luz del P09)
+in vec3  vNormal;      // normal interpolada (sin usar hasta la luz del P09, Parte 2)
 in vec2  vTexCoord;    // coordenadas de textura, en teselas
-in float vDistancia;   // distancia a la cámara (niebla)
+in vec3  vPosMundo;    // posición en mundo (niebla; desde la Parte 2, también la luz)
 
 // SALIDA (out): el color final de este píxel (R, G, B, A en [0, 1]).
 out vec4 FragColor;
@@ -26,25 +33,8 @@ layout (binding = 0) uniform sampler2D uTextura;
 uniform vec3 uColor;         // color plano (depuración: colores por nivel, tecla L)
 uniform int  uUsarTextura;   // 1 = textura (pasto), 0 = color plano
 
-// Niebla LINEAL (mejora leve del Práctico 07). El color de la niebla es ahora el
-// PROMEDIO DEL HORIZONTE del cielo (lo calcula Skybox al cargar el cubemap).
-// TEMPORAL: la misma función está repetida en fondo.fs (el suelo continuado
-// necesita EXACTAMENTE la misma niebla). En el Práctico 09 (Parte 1) pasa a un
-// archivo GLSL común (iluminacion.glsl) y se vuelve exponencial.
-uniform vec3  uNieblaColor;  // color de la niebla (= horizonte del cielo)
-uniform float uNieblaInicio; // distancia donde EMPIEZA (antes: sin niebla), unidades de escena
-uniform float uNieblaFin;    // distancia donde es TOTAL; <= 0 -> niebla apagada (tecla N)
-
-vec3 aplicar_niebla(vec3 color, float distancia)
-{
-    if (uNieblaFin <= 0.0) {
-        return color;
-    }
-    // f = cuánta niebla: 0 antes de uNieblaInicio, 1 desde uNieblaFin, lineal
-    // en el medio. mix(a, b, f) = a·(1-f) + b·f.
-    float f = clamp((distancia - uNieblaInicio) / (uNieblaFin - uNieblaInicio), 0.0, 1.0);
-    return mix(color, uNieblaColor, f);
-}
+// La niebla (uNieblaColor, uNieblaInicio, uNieblaFin y aplicar_niebla) viene de
+// iluminacion.glsl: es la MISMA que usan el avión y el suelo continuado.
 
 void main()
 {
@@ -55,5 +45,5 @@ void main()
     vec3 texel = texture(uTextura, vTexCoord).rgb;              // color del pasto en este punto
     vec3 color = (uUsarTextura == 1) ? texel : uColor;          // el color elegido, sin niebla
 
-    FragColor = vec4(aplicar_niebla(color, vDistancia), 1.0);
+    FragColor = vec4(aplicar_niebla(color, vPosMundo), 1.0);    // código común
 }

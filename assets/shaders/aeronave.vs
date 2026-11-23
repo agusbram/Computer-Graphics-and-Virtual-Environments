@@ -1,4 +1,4 @@
-#version 460 core
+// Sin #version: desde el Práctico 09 la agrega la clase Shader a todas las etapas (ver Shader.cpp).
 
 // -----------------------------------------------------------------------------
 // aeronave.vs — vertex shader de las PIEZAS DEL AVIÓN (Práctico 08)
@@ -6,6 +6,9 @@
 // Es el antiguo solid.vs (Prácticos 03-07) sin el morph del terreno (que pasó a
 // terreno.vs) y con las coordenadas de textura que, por primera vez, se usan:
 // la Parte 3 de la guía pide VERIFICARLAS aplicando una imagen asimétrica.
+//
+// Práctico 09 (Parte 1): manda la POSICIÓN EN MUNDO (vPosMundo) en lugar de la
+// distancia a la cámara, para la niebla del código común (y la luz, Parte 3).
 // -----------------------------------------------------------------------------
 
 // ENTRADAS (in): un valor POR VÉRTICE, leído del VBO de la malla de la pieza.
@@ -15,9 +18,9 @@ layout (location = 1) in vec3 aNormal;      // normal de la primitiva (sin usar 
 layout (location = 2) in vec2 aTexCoords;   // (u, v) de la primitiva en [0, 1] (Práctico 03)
 
 // SALIDAS (out): van, INTERPOLADAS, a aeronave.fs (mismo nombre).
-out vec3  vNormal;      // la normal, sin cambios
+out vec3  vNormal;      // la normal, sin cambios (la luz la usa desde la Parte 3)
 out vec2  vTexCoord;    // (u, v) ya multiplicadas por la escala de la pieza
-out float vDistancia;   // distancia a la cámara (niebla)
+out vec3  vPosMundo;    // P09: posición en MUNDO (origen flotante: relativa al avión)
 
 // UNIFORMS (iguales para todos los vértices de la pieza).
 uniform mat4 uModel;       // matriz de modelo de la pieza (pose * local)
@@ -31,9 +34,9 @@ void main()
     // Repetir la textura: con escala 2, las (u, v) van de 0 a 2 y GL_REPEAT
     // dibuja dos copias sobre la pieza.
     vTexCoord = aTexCoords * uEscalaUV;
-    // posVista = el vértice en el sistema de la CÁMARA (después de M y V); la
-    // cámara está en el origen, así que su largo es la distancia a ella.
-    vec4 posVista = uView * uModel * vec4(aPos, 1.0);
-    vDistancia    = length(posVista.xyz);
-    gl_Position   = uProjection * posVista;   // salida obligatoria: posición en recorte
+    // posMundo = el vértice después de la matriz de modelo de la pieza (pose
+    // del avión * ubicación de la pieza). Mismo sistema que uOjo y el sol.
+    vec4 posMundo = uModel * vec4(aPos, 1.0);
+    vPosMundo     = posMundo.xyz;
+    gl_Position   = uProjection * uView * posMundo;   // salida obligatoria: posición en recorte
 }

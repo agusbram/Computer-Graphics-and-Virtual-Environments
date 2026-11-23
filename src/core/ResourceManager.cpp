@@ -51,38 +51,61 @@ ResourceManager::ResourceManager(const std::filesystem::path& assets_root)
     }
 }
 
-const ShaderSource& ResourceManager::load_shader_source(const std::string& key,
-                                                        const std::string& vs_file,
-                                                        const std::string& fs_file,
-                                                        const std::string& gs_file)
+namespace {
+
+// Une una lista de archivos en un solo texto legible, para los mensajes de
+// aviso: {"a.glsl", "b.fs"} -> "a.glsl + b.fs".
+std::string unir_nombres(const std::vector<std::string>& files)
 {
+    std::string texto;
+    for (std::size_t i = 0; i < files.size(); ++i) {
+        texto += (i == 0U ? "" : " + ") + files[i];
+    }
+    return texto;
+}
+
+}   // namespace (anónimo)
+
+const ShaderSource& ResourceManager::load_shader_source(const std::string& key,
+                                                        const std::vector<std::string>& vs_files,
+                                                        const std::vector<std::string>& fs_files,
+                                                        const std::vector<std::string>& gs_files)
+{
+    // 1) ¿Ya está en el caché? Se compara la LISTA completa de cada etapa
+    //    (mismos archivos y en el mismo orden: el orden cambia el texto que se
+    //    compila). Igual que antes: mismo pedido -> caché; otro -> aviso y gana
+    //    la primera carga (decisión 2).
     const auto it = shaders_sources_.find(key);
     if (it != shaders_sources_.end()) {
-        const CachedShader& cached = it->second;
+        const ShaderSource& cached = it->second;
 
-        if (cached.vs_file == vs_file && cached.fs_file == fs_file &&
-            cached.gs_file == gs_file) {
-            return cached.source;   // pedido repetido: cache, sin leer disco
+        if (cached.vs.files == vs_files && cached.fs.files == fs_files &&
+            cached.gs.files == gs_files) {
+            return cached;   // pedido repetido: cache, sin leer disco
         }
 
         std::cerr << "[ResourceManager] aviso: la clave '" << key
                   << "' ya estaba cargada con otros archivos; se conserva "
-                  << "la copia en cache y se ignora ('" << vs_file << "', '"
-                  << fs_file << "')" << std::endl;
-        return cached.source;
+                  << "la copia en cache y se ignora ('" << unir_nombres(vs_files)
+                  << "', '" << unir_nombres(fs_files) << "')" << std::endl;
+        return cached;
     }
 
-    CachedShader entry;
-    entry.vs_file = vs_file;
-    entry.fs_file = fs_file;
-    entry.gs_file = gs_file;
-    entry.source.vs = read_shader_file(vs_file, "vertex shader");
-    entry.source.fs = read_shader_file(fs_file, "fragment shader");
-    if (!gs_file.empty()) {
-        entry.source.gs = read_shader_file(gs_file, "geometry shader");
+    // 2) El vertex y el fragment son obligatorios: una lista vacía es un error
+    //    del llamador y se informa con una excepción (decisión 1).
+    if (vs_files.empty() || fs_files.empty()) {
+        throw std::runtime_error("ResourceManager: la clave '" + key +
+                                 "' necesita al menos un archivo de vertex shader "
+                                 "y uno de fragment shader");
     }
 
-    return shaders_sources_.emplace(key, std::move(entry)).first->second.source;
+    // 3) Leer cada etapa (si un archivo falta, lanza y no se guarda nada).
+    ShaderSource entry;
+    entry.vs = read_shader_stage(vs_files, "vertex shader");
+    entry.fs = read_shader_stage(fs_files, "fragment shader");
+    entry.gs = read_shader_stage(gs_files, "geometry shader");   // vacía si no hay
+
+    return shaders_sources_.emplace(key, std::move(entry)).first->second;
 }
 
 const ShaderSource& ResourceManager::get_shader_source(const std::string& key) const
@@ -92,7 +115,29 @@ const ShaderSource& ResourceManager::get_shader_source(const std::string& key) c
         throw std::runtime_error("ResourceManager: se pidió la clave '" + key +
                                  "' pero nunca fue cargada");
     }
-    return it->second.source;
+    return it->second;
+}
+
+// Práctico 09: lee los archivos de UNA etapa, en el orden de la lista. Cada uno
+// queda como un texto aparte (no se concatenan acá: lo hace la GPU al compilar).
+ShaderStageSource ResourceManager::read_shader_stage(const std::vector<std::string>& files,
+                                                     const std::string& shader_type)
+{
+    ShaderStageSource stage;
+    for (const std::string& file : files) {
+        std::string texto = read_shader_file(file, shader_type);
+        // glShaderSource pega las cadenas TAL CUAL, sin agregar nada entre una
+        // y otra. Si un archivo no termina en salto de línea, su última línea
+        // quedaría pegada a la primera del archivo siguiente (por ejemplo, un
+        // comentario // final se "comería" la primera línea del otro). Se
+        // asegura un '\n' al final de cada uno.
+        if (!texto.empty() && texto.back() != '\n') {
+            texto += '\n';
+        }
+        stage.files.push_back(file);
+        stage.sources.push_back(std::move(texto));
+    }
+    return stage;
 }
 
 // -----------------------------------------------------------------------------

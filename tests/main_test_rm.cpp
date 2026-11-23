@@ -31,15 +31,23 @@ int main()
         // --------------------------------------------------------------
         // 1. Carga normal: lee los dos archivos desde ./assets/shaders
         // --------------------------------------------------------------
+        // Práctico 09: cada etapa es una LISTA de archivos (acá, de uno solo).
         ResourceManager rm("./assets");
         const ShaderSource& tri = rm.load_shader_source(
-            "triangle", "shaders/triangle.vs", "shaders/triangle.fs");
+            "triangle", {"shaders/triangle.vs"}, {"shaders/triangle.fs"});
 
         std::cout << "1. Carga inicial de 'triangle'" << std::endl;
-        check(!tri.vs.empty(), "el vertex shader se leyo de disco");
-        check(!tri.fs.empty(), "el fragment shader se leyo de disco");
-        check(tri.vs.find("#version 460 core") != std::string::npos,
+        check(tri.vs.sources.size() == 1U && !tri.vs.sources[0].empty(),
+              "el vertex shader se leyo de disco");
+        check(tri.fs.sources.size() == 1U && !tri.fs.sources[0].empty(),
+              "el fragment shader se leyo de disco");
+        check(tri.vs.sources[0].find("void main") != std::string::npos,
               "el fuente vs tiene contenido esperado");
+        // Desde el P09 ningún archivo trae #version: la agrega Shader.
+        check(tri.vs.sources[0].compare(0, 8, "#version") != 0,
+              "el archivo no empieza con #version (la agrega Shader)");
+        check(tri.vs.files[0] == "shaders/triangle.vs",
+              "guarda el nombre del archivo (para los mensajes de error)");
 
         // --------------------------------------------------------------
         // 2. Cacheo: pedir la MISMA clave con LOS MISMOS archivos no vuelve
@@ -47,7 +55,7 @@ int main()
         //    es la misma copia en memoria: no hubo segunda lectura.
         // --------------------------------------------------------------
         const ShaderSource& otra_vez = rm.load_shader_source(
-            "triangle", "shaders/triangle.vs", "shaders/triangle.fs");
+            "triangle", {"shaders/triangle.vs"}, {"shaders/triangle.fs"});
 
         std::cout << "2. Segundo pedido de la misma clave" << std::endl;
         check(&tri == &otra_vez,
@@ -60,21 +68,47 @@ int main()
         // --------------------------------------------------------------
         // 3. Clave repetida con OTROS archivos: warning y gana el cache.
         // --------------------------------------------------------------
-        const ShaderSource& conflicto = rm.load_shader_source(
-            "triangle", "shaders/inexistentes.vs", "shaders/inexistentes.fs");
-
         std::cout << "3. Misma clave con archivos distintos" << std::endl;
         std::cout.flush(); // para que el aviso del modulo (stderr) salga en orden
+        const ShaderSource& conflicto = rm.load_shader_source(
+            "triangle", {"shaders/inexistentes.vs"}, {"shaders/inexistentes.fs"});
         check(&tri == &conflicto,
               "se conservo la copia cacheada original");
+
+        // --------------------------------------------------------------
+        // 3b. Práctico 09: VARIOS archivos en una etapa (el código común
+        //     delante del propio). Cada archivo queda como un texto aparte,
+        //     en el orden de la lista, y cada uno termina en salto de línea.
+        // --------------------------------------------------------------
+        const ShaderSource& terreno = rm.load_shader_source(
+            "terreno", {"shaders/terreno.vs"},
+            {"shaders/iluminacion.glsl", "shaders/terreno.fs"});
+        std::cout << "3b. Varios archivos por etapa (P09)" << std::endl;
+        check(terreno.fs.sources.size() == 2U && terreno.fs.files.size() == 2U,
+              "el fragment tiene dos textos (comun + propio)");
+        check(terreno.fs.files[0] == "shaders/iluminacion.glsl" &&
+              terreno.fs.files[1] == "shaders/terreno.fs",
+              "en el orden de la lista");
+        check(terreno.fs.sources[0].find("aplicar_niebla") != std::string::npos,
+              "el primero es el codigo comun");
+        check(terreno.fs.sources[0].back() == '\n' && terreno.fs.sources[1].back() == '\n',
+              "cada texto termina en salto de linea");
+        // Mismo nombre de clave con OTRO orden: es otro pedido (el orden cambia
+        // el texto que se compila) -> aviso y gana el cache.
+        std::cout.flush();
+        const ShaderSource& otro_orden = rm.load_shader_source(
+            "terreno", {"shaders/terreno.vs"},
+            {"shaders/terreno.fs", "shaders/iluminacion.glsl"});
+        check(&otro_orden == &terreno && otro_orden.fs.files[0] == "shaders/iluminacion.glsl",
+              "otro orden con la misma clave: aviso y se conserva la primera carga");
 
         // --------------------------------------------------------------
         // 4. Fallo: archivo inexistente -> excepcion, nunca silencio.
         // --------------------------------------------------------------
         bool lanzo = false;
         try {
-            rm.load_shader_source("fantasma", "shaders/no_existe.vs",
-                                  "shaders/triangle.fs");
+            rm.load_shader_source("fantasma", {"shaders/no_existe.vs"},
+                                  {"shaders/triangle.fs"});
         } catch (const std::runtime_error& e) {
             lanzo = true;
             std::cout << "4. Archivo inexistente" << std::endl;
@@ -82,6 +116,17 @@ int main()
                       << std::endl;
         }
         check(lanzo, "load con archivo inexistente lanza runtime_error");
+
+        // 4b. Práctico 09: lista vacía de fragment shader -> excepción.
+        lanzo = false;
+        try {
+            rm.load_shader_source("sin_fragment", {"shaders/triangle.vs"}, {});
+        } catch (const std::runtime_error& e) {
+            lanzo = true;
+            std::cout << "4b. Lista de archivos vacia" << std::endl;
+            std::cout << "  [OK]   excepcion esperada: " << e.what() << std::endl;
+        }
+        check(lanzo, "load sin archivos de fragment lanza runtime_error");
 
         // --------------------------------------------------------------
         // 5. Fallo: clave que nunca se cargo -> excepcion en get_.

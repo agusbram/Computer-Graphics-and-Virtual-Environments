@@ -1,4 +1,4 @@
-#version 460 core
+// Sin #version: desde el Práctico 09 la agrega la clase Shader a todas las etapas (ver Shader.cpp).
 
 // -----------------------------------------------------------------------------
 // triangle.fs — fragment shader del primer triángulo (Práctico 01)
