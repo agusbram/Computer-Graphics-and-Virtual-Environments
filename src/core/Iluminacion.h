@@ -23,8 +23,10 @@
 //      que hay un UniformsIluminacion por programa.
 //   4. BÚSQUEDA SIN AVISO: un programa puede no usar alguno de estos uniforms
 //      (el compilador de GLSL elimina los que no se usan y su ubicación es -1).
-//      Por ejemplo, en la Parte 1 nadie llama todavía a iluminar() y los del
-//      sol no existen en ningún programa. glProgramUniform* con -1 no hace nada.
+//      Por ejemplo, en la Parte 1 nadie llamaba todavía a iluminar() y los del
+//      sol no existían en ningún programa; en la Parte 2 el avión todavía no
+//      se ilumina (es la Parte 3) y no los tiene. glProgramUniform* con -1 no
+//      hace nada.
 //      Para no perder de vista un nombre mal escrito, al buscarlos se informa
 //      por consola cuántos usa cada programa y cuáles no.
 //
@@ -46,6 +48,9 @@
 // los ajusta (el sol pintado y el horizonte del cubemap los calcula el Skybox).
 struct Iluminacion {
     // --- Sol (luz direccional, Parte 2) ---
+    // Luz DIRECCIONAL: el sol está tan lejos que sus rayos llegan PARALELOS a
+    // toda la escena. Por eso es una sola dirección para todos los puntos (la
+    // w = 0 de las filminas) y no una posición: no se calcula L por fragmento.
     glm::vec3 sol_dir {0.0f, 0.0f, 1.0f};   // dirección HACIA el sol (de la superficie a la luz), mundo, unitaria
     glm::vec3 sol_color {0.7f};             // color e intensidad del sol (lineal: proporción de la luz)
     glm::vec3 ambiente {0.3f};              // luz ambiente (0,3 + 0,7 = 1: sin zonas quemadas)
@@ -56,6 +61,14 @@ struct Iluminacion {
     glm::vec3 niebla_color {0.5f};          // color del horizonte del cielo (lo calcula el Skybox)
     float     niebla_inicio {300.0f};       // distancia donde EMPIEZA (u de escena; 300 u = 3 km)
     float     niebla_fin {1800.0f};         // distancia donde es TOTAL; <= 0 -> sin niebla (tecla N)
+
+    // --- Verificación de la luz del suelo (Parte 2, tecla B) ---
+    // 0 = con luz y las normales del terreno; 1 = sin luz (color = kd, como el
+    // P08); 2 = con luz y la normal constante (0, 0, 1). Va acá y no en un
+    // uniform propio del terreno porque lo usan DOS programas (la malla del
+    // terreno y el suelo continuado del fondo) y los dos tienen que cambiar
+    // juntos; así viaja por el mismo camino que el sol y la niebla.
+    int       modo_suelo {0};
 };
 
 // Ubicaciones de los uniforms de iluminacion.glsl en UN programa. -1 = el
@@ -63,10 +76,11 @@ struct Iluminacion {
 struct UniformsIluminacion {
     int sol_dir = -1, sol_color = -1, ambiente = -1, ojo = -1;
     int niebla_color = -1, niebla_inicio = -1, niebla_fin = -1;
+    int modo_suelo = -1;   // P09, Parte 2 (tecla B)
 };
 
 // Busca (una vez) las ubicaciones en el programa e informa por consola cuántas
-// usa: "[luz] terreno: usa 4 de 7 (no usa: uSolDir, ...)". `nombre` es solo
+// usa: "[luz] aeronave: usa 4 de 8 (no usa: uSolDir, ...)". `nombre` es solo
 // para ese informe.
 UniformsIluminacion buscar_uniforms_iluminacion(const Shader& programa,
                                                 const std::string& nombre);
@@ -75,3 +89,10 @@ UniformsIluminacion buscar_uniforms_iluminacion(const Shader& programa,
 // flotante) al programa. Se llama en cada cuadro, una vez por programa.
 void enviar_iluminacion(const Shader& programa, const UniformsIluminacion& u,
                         const Iluminacion& luz, const glm::vec3& ojo);
+
+// Práctico 09 (Parte 2), teclas O/P: la dirección HACIA el sol con la MISMA
+// orientación horizontal (acimut) que `base` pero a otra ELEVACIÓN (grados
+// sobre el horizonte). Escena Z-ARRIBA: la elevación es el ángulo con el plano
+// X-Y y el acimut, el ángulo en ese plano. Se usa para subir y bajar el sol
+// sin que cambie el lado del que viene (el del sol pintado del cubemap).
+glm::vec3 sol_con_elevacion(const glm::vec3& base, float elevacion_grados);

@@ -4,8 +4,12 @@
 
 #include "core/Iluminacion.h"   // la declaración que se implementa acá
 
+#include <cmath>                // std::atan2, std::cos, std::sin: la dirección del sol (O/P)
 #include <iostream>             // std::cout: el informe de qué uniforms usa cada programa
+#include <iterator>             // std::size: cuántos uniforms hay en la lista del informe
 #include <utility>              // std::pair: (nombre del uniform, ubicación) para el informe
+
+#include <glm/trigonometric.hpp>   // glm::radians: grados -> radianes
 
 UniformsIluminacion buscar_uniforms_iluminacion(const Shader& programa,
                                                 const std::string& nombre)
@@ -20,13 +24,15 @@ UniformsIluminacion buscar_uniforms_iluminacion(const Shader& programa,
     u.niebla_color  = programa.loc("uNieblaColor", false);
     u.niebla_inicio = programa.loc("uNieblaInicio", false);
     u.niebla_fin    = programa.loc("uNieblaFin", false);
+    u.modo_suelo    = programa.loc("uModoSuelo", false);
 
     // Informe: cuántos usa este programa y cuáles no. Reemplaza al aviso de
     // loc(): sirve para notar un nombre mal escrito sin repetir siete avisos.
     const std::pair<const char*, int> todos[] = {
         {"uSolDir", u.sol_dir}, {"uSolColor", u.sol_color}, {"uAmbiente", u.ambiente},
         {"uOjo", u.ojo}, {"uNieblaColor", u.niebla_color},
-        {"uNieblaInicio", u.niebla_inicio}, {"uNieblaFin", u.niebla_fin}};
+        {"uNieblaInicio", u.niebla_inicio}, {"uNieblaFin", u.niebla_fin},
+        {"uModoSuelo", u.modo_suelo}};
     int usados = 0;
     std::string faltan;
     for (const auto& [n, ubicacion] : todos) {
@@ -36,7 +42,8 @@ UniformsIluminacion buscar_uniforms_iluminacion(const Shader& programa,
             faltan += (faltan.empty() ? "" : ", ") + std::string(n);
         }
     }
-    std::cout << "[luz]    " << nombre << ": usa " << usados << " de 7 uniforms de la escena";
+    std::cout << "[luz]    " << nombre << ": usa " << usados << " de " << std::size(todos)
+              << " uniforms de la escena";
     if (!faltan.empty()) {
         std::cout << " (no usa: " << faltan << ")";
     }
@@ -56,4 +63,19 @@ void enviar_iluminacion(const Shader& programa, const UniformsIluminacion& u,
     programa.set_uniform(u.niebla_color, luz.niebla_color);
     programa.set_uniform(u.niebla_inicio, luz.niebla_inicio);
     programa.set_uniform(u.niebla_fin, luz.niebla_fin);
+    programa.set_uniform(u.modo_suelo, luz.modo_suelo);
+}
+
+glm::vec3 sol_con_elevacion(const glm::vec3& base, float elevacion_grados)
+{
+    // Acimut de la dirección base: el ángulo de su sombra sobre el plano
+    // horizontal X-Y (atan2 da el ángulo correcto en los cuatro cuadrantes).
+    const float acimut = std::atan2(base.y, base.x);
+    const float e      = glm::radians(elevacion_grados);
+    // Coordenadas esféricas con Z arriba: la parte horizontal mide cos(e) y se
+    // reparte entre x e y según el acimut; la vertical es sin(e). El vector
+    // queda unitario (cos²e·(cos²a + sin²a) + sin²e = 1).
+    return glm::vec3(std::cos(e) * std::cos(acimut),
+                     std::cos(e) * std::sin(acimut),
+                     std::sin(e));
 }

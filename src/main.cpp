@@ -1,6 +1,15 @@
 // -----------------------------------------------------------------------------
 // main.cpp — la aplicación (Prácticos 04 a 09)
 //
+// Lo nuevo del Práctico 09, Parte 2 — el TERRENO ILUMINADO por el sol:
+//   1. La malla del terreno y el suelo continuado se iluminan con el modelo de
+//      Phong (iluminar_suelo, código común): kd = la textura, ks = 0.
+//   2. El sol: por omisión, el sol PINTADO en el cubemap; O/P lo bajan/suben
+//      (misma orientación, otra elevación) y H lo vuelve al pintado.
+//   3. Tecla B (verificación de la guía): con luz / sin luz / normal constante.
+//   4. Las normales del terreno se corrigieron (Terrain.cpp y terreno.vs):
+//      diferencias centrales también en el borde, y geomorphing de la normal.
+//
 // Lo nuevo del Práctico 09 (iluminación y niebla), Parte 1 — la iluminación como
 // código COMPARTIDO entre shaders:
 //   1. Cada fragment shader se arma con VARIOS archivos:
@@ -50,9 +59,9 @@
 // IMPORTANTE: este main.cpp NO posee recursos de OpenGL (no hay glDelete*).
 // -----------------------------------------------------------------------------
 
-#include <algorithm>        // std::min
+#include <algorithm>        // std::min, std::max, std::clamp (elevación del sol, P09)
 #include <array>            // std::array (las 6 caras del cubemap)
-#include <cmath>            // std::atan, std::floor
+#include <cmath>            // std::atan, std::floor, std::round
 #include <cstdlib>          // EXIT_FAILURE, EXIT_SUCCESS
 #include <exception>        // std::exception
 #include <iostream>         // std::cout, std::endl, std::cerr
@@ -112,6 +121,14 @@ static constexpr float kTamTesela = 5.0f;
 // (para medir la "banda" del problema de la altitud sin tener que pilotear).
 static constexpr float kPasoAltura = 10.0f;   // u (= 100 m) por pulsación
 
+// Práctico 09 (Parte 2): cuánto sube/baja el sol con O/P, y hasta dónde. Entre
+// 0° (rasante, en el horizonte) y 90° (cenit, mediodía en el ecuador). Debajo
+// del horizonte no se lo deja bajar: Phong no tiene sombras y el sol
+// iluminaría desde abajo (eso es tema del ciclo día/noche opcional).
+static constexpr float kPasoSol      = 5.0f;    // grados por pulsación
+static constexpr float kSolElevMin   = 0.0f;    // grados
+static constexpr float kSolElevMax   = 90.0f;   // grados
+
 // Variables globales para guardar el último error reportado por GLFW
 static int glfw_error_code{};
 static std::string glfw_error_str{};
@@ -135,6 +152,10 @@ struct AppContext {
     bool  suelo_continuado = true;  // G: suelo continuado en el fondo (Parte 5)
     bool  solo_nivel_fino = false;  // 1: solo el nivel fino del LOD (ventana como el P07)
     float altura_extra = 0.0f;      // RePág/AvPág: u que se BAJA el terreno (= sube el avión)
+    // --- Práctico 09 ---
+    int   modo_suelo = 0;           // B: 0 con luz, 1 sin luz (como el P08), 2 normal constante
+    float sol_elevacion = 30.0f;    // O/P: elevación del sol, en grados sobre el horizonte
+    float sol_elevacion_pintado = 30.0f;   // H: la del sol pintado en el cubemap (la calcula el Skybox)
 };
 
 // Práctico 08: ubicaciones de los uniforms "por pieza" de un programa. Se buscan
@@ -298,7 +319,7 @@ int main()
             const int loc_tam_tesela = shader_terreno.loc("uTamTesela");
             // Práctico 09: los uniforms de la ESCENA (sol, ojo, niebla) del
             // código común, en cada programa. Se informa por consola cuántos usa
-            // cada uno (en la Parte 1 nadie usa todavía los del sol).
+            // cada uno (en la Parte 2 el avión todavía no usa los del sol).
             const UniformsIluminacion ul_terreno  = buscar_uniforms_iluminacion(shader_terreno, "terreno");
             const UniformsIluminacion ul_aeronave = buscar_uniforms_iluminacion(shader_aeronave, "aeronave");
 
@@ -444,19 +465,21 @@ int main()
                           << " grados" << std::endl;
             }
 
-            // --- Luz y niebla de la escena (Práctico 09, Parte 1) -----------
+            // --- Luz y niebla de la escena (Práctico 09, Partes 1 y 2) ------
             // UN SOLO LUGAR del lado de la CPU para los parámetros de la luz y
             // de la niebla: esta instancia. Desde acá se envían, en cada
-            // cuadro, a los tres programas. El sol apunta al sol PINTADO en el
-            // cubemap (lo calculó el Skybox) para que la luz venga de donde se
-            // lo ve; el color y el ambiente quedan en 0,7 y 0,3 (los de la
-            // guía: suman 1).
-            // niebla_color y niebla_fin NO se cargan acá: dependen de las
-            // teclas K (cielo activo) y N (niebla on/off), así que se asignan
-            // en el bucle, en cada cuadro, antes de enviar `luz` (un solo
-            // lugar que los escribe). El primer cuadro ya pasa por ahí.
+            // cuadro, a los tres programas. El color del sol y el ambiente
+            // quedan en 0,7 y 0,3 (los valores por omisión, los de la guía:
+            // suman 1, así una cara que mira de frente al sol llega justo a kd
+            // y no se "quema" en blanco).
+            // Lo que cambia con TECLAS NO se carga acá: se asigna en el bucle,
+            // en cada cuadro, antes de enviar `luz` (un solo lugar que lo
+            // escribe; el primer cuadro ya pasa por ahí):
+            //   sol_dir      -> teclas O/P/H (por omisión, el sol PINTADO);
+            //   modo_suelo   -> tecla B;
+            //   niebla_color -> tecla K (cielo activo);
+            //   niebla_fin   -> tecla N (niebla on/off).
             Iluminacion luz;
-            luz.sol_dir       = fondo.direccion_sol();
             luz.niebla_inicio = kNieblaInicio;
 
             // 4) Decisión 1: la GPU ya tiene su copia -> se libera la de la CPU
@@ -481,6 +504,8 @@ int main()
                       << "I=mipmaps (con/sin/trampa), K=cielo cubemap/degrade, "
                       << "G=suelo continuado, 1=solo nivel fino, "
                       << "RePag/AvPag=altura sobre el terreno" << std::endl;
+            std::cout << "teclas P09: B=luz del suelo (con luz/sin luz/normal constante), "
+                      << "O/P=bajar/subir el sol, H=sol pintado del cubemap" << std::endl;
             {
                 GLint muestras = 0;
                 glGetIntegerv(GL_SAMPLES, &muestras);
@@ -494,7 +519,7 @@ int main()
             // Contexto para las callbacks (cámara + toggles discretos).
             // ctx es el "tablero de interruptores" del programa: guarda el
             // estado de cada tecla de depuración (pausa, F, L, M, N, U, T, I,
-            // K, G, 1, RePág/AvPág) y un puntero a la cámara.
+            // K, G, 1, RePág/AvPág; P09: B, O/P, H) y un puntero a la cámara.
             // El problema que resuelve: GLFW llama a key_callback y a
             // framebuffer_size_callback con SOLO la ventana y la tecla; son
             // funciones libres y no ven las variables de main. La solución de
@@ -509,6 +534,10 @@ int main()
             // Vive en main (pila): existe mientras la ventana existe.
             AppContext ctx;
             ctx.camara = &camara;
+            // P09: el sol arranca en el PINTADO del cubemap (la luz viene de
+            // donde se lo ve). H vuelve a este valor.
+            ctx.sol_elevacion_pintado = fondo.elevacion_sol_grados();
+            ctx.sol_elevacion         = ctx.sol_elevacion_pintado;
             glfwSetWindowUserPointer(window, &ctx);
             glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
             glfwSetKeyCallback(window, key_callback);
@@ -689,6 +718,16 @@ int main()
                 // código común no aplica niebla si uNieblaFin <= 0.
                 luz.niebla_fin = ctx.niebla ? kNieblaFin : 0.0f;
                 const glm::vec3 color_niebla = luz.niebla_color;
+
+                // P09 (Parte 2): el SOL. Misma orientación horizontal (acimut)
+                // que el sol pintado del cubemap, a la elevación elegida con
+                // O/P (H la vuelve a la del pintado). Mientras la elevación sea
+                // la del pintado, la dirección es la del sol que se ve en el
+                // cielo; si se la cambia, el sol PINTADO no se mueve (es una
+                // imagen): la luz deja de coincidir con él, a propósito, para
+                // comparar un sol alto con uno bajo.
+                luz.sol_dir    = sol_con_elevacion(fondo.direccion_sol(), ctx.sol_elevacion);
+                luz.modo_suelo = ctx.modo_suelo;   // B: verificación de la luz del suelo
                 //
                 // Borrar la pantalla al empezar el cuadro, en dos pasos:
                 //   glClearColor: solo ELIGE el color de borrado (R, G, B, A en
@@ -816,6 +855,17 @@ void key_callback(GLFWwindow* window, int key, [[maybe_unused]] int scancode,
         if (key == GLFW_KEY_PAGE_DOWN) {
             ctx->altura_extra = std::max(0.0f, ctx->altura_extra - kPasoAltura);
         }
+        // Práctico 09 (Parte 2): O/P bajan/suben el sol (también con REPEAT:
+        // manteniendo la tecla, el sol se mueve de a kPasoSol grados).
+        if (key == GLFW_KEY_O || key == GLFW_KEY_P) {
+            const float paso = (key == GLFW_KEY_P) ? kPasoSol : -kPasoSol;
+            ctx->sol_elevacion = std::clamp(ctx->sol_elevacion + paso, kSolElevMin, kSolElevMax);
+            // (round(x·10)/10: se muestra con un decimal, 24.8 y no 24.8047)
+            std::cout << "[O/P] sol a " << std::round(ctx->sol_elevacion * 10.0f) / 10.0f
+                      << " grados de elevacion (el pintado del cubemap esta a "
+                      << std::round(ctx->sol_elevacion_pintado * 10.0f) / 10.0f
+                      << "; H vuelve a el)" << std::endl;
+        }
     }
     if (action != GLFW_PRESS) {
         return;
@@ -866,6 +916,23 @@ void key_callback(GLFWwindow* window, int key, [[maybe_unused]] int scancode,
         ctx->solo_nivel_fino = !ctx->solo_nivel_fino;
         std::cout << "[1] terreno: " << (ctx->solo_nivel_fino ? "SOLO el nivel fino (como el P07)"
                                                               : "clipmap completo") << std::endl;
+    }
+
+    // --- Práctico 09 (Parte 2): verificación de la luz del suelo ---------------
+    if (key == GLFW_KEY_B) {
+        // Los tres modos de la verificación de la guía, desde la misma cámara
+        // (con ESPACIO se pausa el vuelo para que la cámara no se mueva).
+        ctx->modo_suelo = (ctx->modo_suelo + 1) % 3;
+        const char* modos[3] = {"CON luz (normales del terreno)",
+                                "SIN luz (el color es kd, como el P08)",
+                                "con luz y NORMAL CONSTANTE (0, 0, 1): el relieve desaparece"};
+        std::cout << "[B] suelo: " << modos[ctx->modo_suelo] << std::endl;
+    }
+    if (key == GLFW_KEY_H) {
+        ctx->sol_elevacion = ctx->sol_elevacion_pintado;
+        std::cout << "[H] sol: el pintado del cubemap ("
+                  << std::round(ctx->sol_elevacion * 10.0f) / 10.0f
+                  << " grados de elevacion)" << std::endl;
     }
 }
 

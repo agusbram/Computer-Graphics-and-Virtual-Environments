@@ -65,8 +65,9 @@ void Mesh::load(const MeshData& data)
     glVertexArrayVertexBuffer(vao_, 0, vbo_, 0,
                               static_cast<GLsizei>(sizeof(Vertex)));
 
-    // Tres atributos sobre el MISMO buffer entrelazado. Las ubicaciones
-    // (0, 1, 2) deben coincidir con los layout(location = ...) del vertex
+    // Los atributos van sobre el MISMO buffer entrelazado (tres en el
+    // Práctico 03; cinco desde el 09). Las ubicaciones
+    // (0, 1, 2, ...) deben coincidir con los layout(location = ...) del vertex
     // shader. Los desplazamientos se calculan con offsetof: al cambiar la
     // tupla en el Práctico 03 solo se toco ESTE archivo (y el shader), tal
     // como se habia previsto en el Práctico 02.
@@ -97,6 +98,16 @@ void Mesh::load(const MeshData& data)
                               static_cast<GLuint>(offsetof(Vertex, altura_gruesa)));
     glVertexArrayAttribBinding(vao_, 3, 0);
     glEnableVertexArrayAttrib(vao_, 3);
+
+    // Atributo 4 -> location = 4 (aNormalGruesa): 3 floats, la normal del nivel
+    // grueso (Práctico 09, Parte 2: geomorphing de la normal). Mismo
+    // procedimiento que el atributo 3: un campo más en Vertex, un par
+    // Format/Enable más acá y un location más en terreno.vs. Los shaders que no
+    // lo declaran (el del avión) simplemente no lo leen.
+    glVertexArrayAttribFormat(vao_, 4, 3, GL_FLOAT, GL_FALSE,
+                              static_cast<GLuint>(offsetof(Vertex, normal_gruesa)));
+    glVertexArrayAttribBinding(vao_, 4, 0);
+    glEnableVertexArrayAttrib(vao_, 4);
 
     // EBO (opcional): lista de indices de los triangulos, a la ranura
     // dedicada del VAO.

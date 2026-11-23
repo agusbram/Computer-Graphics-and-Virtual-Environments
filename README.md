@@ -56,6 +56,11 @@ que se desarrollan los prácticos del proyecto integrador
     informan el archivo y la línea. Los parámetros de la luz y la niebla están en
     un único lugar de la CPU (struct `Iluminacion`), que se envía a los tres
     programas.
+  - *Parte 2* ✔: el **terreno iluminado** por el sol (Phong, luz direccional).
+    La malla y el suelo continuado usan la misma función y el mismo material
+    (`kd` = textura, `ks` = 0). Normales del terreno corregidas: diferencias
+    centrales también en el borde (grilla de alturas con margen) y
+    **geomorphing de la normal**. Teclas `B`, `O`/`P`, `H`.
 
 ---
 
@@ -86,6 +91,9 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
   `I` = filtrado del pasto (con mipmaps / sin mipmaps / "trampa"); `K` = cielo
   cubemap ↔ degradé; `G` = suelo continuado; `1` = solo el nivel fino del LOD;
   `RePág`/`AvPág` = altura sobre el terreno (para medir la banda).
+- **Teclado (Práctico 09)**: `B` = luz del suelo (con luz / sin luz / normal
+  constante); `O`/`P` = bajar/subir el sol (5° por pulsación); `H` = volver al
+  sol pintado del cubemap.
 - **Mouse**: botón izquierdo arrastrado = orbitar (yaw/pitch); botón derecho
   arrastrado (vertical) = acercar/alejar.
 - La consola muestra versión de driver/vendor/GLSL al arrancar.
@@ -100,9 +108,9 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
 ├── assets/
 │   ├── shaders/            # fuentes GLSL externos (SIN #version: la agrega Shader, P09):
 │   │                       #   iluminacion.glsl (código COMÚN: luz + niebla)     — P09
-│   │                       #   terreno.*  (morph del LOD + pasto + niebla)       — P08
+│   │                       #   terreno.*  (morph del LOD + pasto + luz + niebla) — P08/P09
 │   │                       #   aeronave.* (color, chapa o imagen de prueba)       — P08
-│   │                       #   fondo.*    (cielo cubemap/degradé + suelo continuado) — P08
+│   │                       #   fondo.*    (cielo cubemap/degradé + suelo continuado iluminado) — P08/P09
 │   │                       #   solid.*    (OBSOLETOS: la versión del P07, ya no se cargan)
 │   └── textures/           # P08: suelo/ (pasto), cielo/ (cubemap), avion/ (chapa CC0),
 │                           #      prueba/ (imagen UV) + LICENCIAS.md (avion/: chapa CC0 + camuflaje generado)
@@ -111,8 +119,8 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
 ├── src/
 │   ├── main.cpp            # app: game loop (paso fijo) + FDM + terreno + cielo + cámara
 │   └── core/
-│       ├── MeshData.h          # tupla Vertex {position, normal, tex_coords, altura_gruesa} (glm)
-│       ├── Mesh.h/.cpp         # dueño del VAO/VBO/EBO (DSA 4.5, 4 atributos; re-subida de vértices e índices)
+│       ├── MeshData.h          # tupla Vertex {position, normal, tex_coords, altura_gruesa, normal_gruesa} (glm)
+│       ├── Mesh.h/.cpp         # dueño del VAO/VBO/EBO (DSA 4.5, 5 atributos; re-subida de vértices e índices)
 │       ├── Shader.h/.cpp       # dueño del programa linkeado + uniforms (DSA); P09: varios archivos por etapa
 │       ├── ShaderSource.h      # fuente de un programa: lista de archivos por etapa (P09)
 │       ├── Iluminacion.h/.cpp  # sol + niebla de la escena: un solo lugar en la CPU (P09)
@@ -131,7 +139,8 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
 │       └── ResourceManager.cpp
 ├── tests/
 │   ├── main_test_rm.cpp        # test standalone del ResourceManager
-│   └── main_test_primitives.cpp# verificación de winding por producto vectorial
+│   ├── main_test_primitives.cpp# verificación de winding por producto vectorial
+│   └── main_test_normales.cpp  # normales del terreno: borde x 2, hacia arriba (P09)
 ├── third_party/
 │   ├── glad/               # cargador de funciones OpenGL
 │   ├── FastNoiseLite/      # ruido procedural para el heightmap (Práctico 07)
@@ -242,6 +251,19 @@ que la normal de sus vértices.
 ```bash
 g++ -std=c++17 -Wall -Wextra -I./src src/core/Primitives.cpp \
     tests/main_test_primitives.cpp -o build/test_primitives && ./build/test_primitives
+```
+
+### Test de las normales del terreno (Práctico 09)
+
+Verificación por cálculo de `generar_malla_terreno` (sin OpenGL): en un plano
+inclinado la normal del **borde** tiene que ser igual a la del interior
+(corrección del borde × 2), y en un relieve todas las normales tienen que ser
+unitarias y apuntar hacia arriba (`z > 0`). Con la fórmula vieja el test falla
+(error 0,24 en el borde).
+
+```bash
+g++ -std=c++17 -Wall -Wextra -I./src -I./third_party/FastNoiseLite \
+    tests/main_test_normales.cpp -o build/test_normales && ./build/test_normales
 ```
 
 ## Armado de la aeronave (Práctico 04)
@@ -410,8 +432,13 @@ Se hace **parte por parte**. Hecho hasta ahora:
 | `Shader` | `compile_from_source(ShaderSource)`: `#version` + `#line 1 N` + cada archivo; el error dice `archivo:línea`. `loc(nombre, false)` busca sin aviso. |
 | `Iluminacion.h/.cpp` (nuevo) | El struct `Iluminacion` (una instancia, `luz`, en `main`) + buscar/enviar sus uniforms por programa, en cada cuadro. |
 | Shaders | Sin `#version` (la agrega `Shader`); la niebla ya no está repetida; los vertex mandan `vPosMundo`. |
+| **Parte 2:** `iluminacion.glsl` | `iluminar_suelo(P, N, kd)`: el material del suelo (`kd` = textura, `ks` = 0) escrito **una vez** para la malla y el suelo continuado, y el modo de la tecla `B` (`uModoSuelo`). |
+| **Parte 2:** `terreno.vs/.fs`, `fondo.fs` | La malla se ilumina con la normal en mundo (`vNormalMundo`; sin matriz normal: el modelo del terreno es solo una traslación). El suelo continuado, con la normal del plano (0, 0, 1). |
+| **Parte 2:** `Terrain`, `Vertex`, `Mesh` | Grilla de alturas con **margen** de 2 nodos: diferencias centrales en todos los vértices. Atributo nuevo `normal_gruesa` (location 4): `terreno.vs` mezcla la normal con el **mismo α** del morph. En `generar_malla_terreno`, borde × 2. |
+| **Parte 2:** `main.cpp`, `Iluminacion` | Sol con la orientación del pintado y elevación elegida (`sol_con_elevacion`); teclas `B`, `O`/`P`, `H`. |
 
 - **Parte 1 = reorganización:** la imagen sale igual que en el P08 (verificado con capturas). La niebla sigue siendo lineal hasta la Parte 4.
+- **Parte 2 = el terreno iluminado:** verificado con los tres modos de `B` desde la misma cámara, el sol bajo y alto, el brillo igual a los dos lados del borde malla/suelo continuado y la normal como color en el borde de los anillos (con capturas en `docs-p09/img/`).
 - **Arreglo:** un shader que no compila ya no hace caer el programa (se lanza una excepción en vez de cerrar la ventana antes de destruir los `Shader`).
 
 Ver [`Practico09-Decisiones.md`](Practico09-Decisiones.md) y [`Practico09-Consultas.md`](Practico09-Consultas.md).
@@ -422,7 +449,8 @@ Ver [`Practico09-Decisiones.md`](Practico09-Decisiones.md) y [`Practico09-Consul
   del proyecto (aplicación / sistemas / datos), destino del simulador.
 - [`Practico09-Decisiones.md`](Practico09-Decisiones.md) — iluminación y niebla:
   las 15 decisiones de diseño tomadas antes de implementar y cada parte hecha
-  (Parte 1: código GLSL común, `#version` y `#line`, struct `Iluminacion`).
+  (Parte 1: código GLSL común, `#version` y `#line`, struct `Iluminacion`;
+  Parte 2: el terreno iluminado, material del suelo, normales del clipmap).
 - [`Practico09-Consultas.md`](Practico09-Consultas.md) — FAQ del P09.
 - [`Practico08-Decisiones.md`](Practico08-Decisiones.md) — texturas y cielo:
   `ImageData`/`load_image` (flip, RGBA, `unload_image`), módulo `Texture` (4 etapas

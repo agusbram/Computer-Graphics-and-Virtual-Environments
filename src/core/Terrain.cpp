@@ -153,10 +153,9 @@ void Terrain::recalcular_vertices(Nivel& nv)
 {
     // Igual que el Práctico 07, con el paso del nivel: alturas UNA vez por nodo
     // en una grilla temporal y normales por diferencias desde ahí.
-    const unsigned fila = N_ + 1U;
+    const int n = static_cast<int>(N_);   // N como int: con el margen hay índices negativos
     const float p = nv.paso;
     const glm::vec2 esq = esquina(nv);
-    auto at = [fila](unsigned i, unsigned j) { return static_cast<std::size_t>(i) * fila + j; };
 
     // Práctico 08 — COORDENADAS DE TEXTURA EN COORDENADAS DE MUNDO.
     // La guía propone (u, v) = (j/N, i/N): una copia de la textura sobre toda la
@@ -175,11 +174,10 @@ void Terrain::recalcular_vertices(Nivel& nv)
         static_cast<float>(modulo(static_cast<double>(esq.x), kPeriodoUV)),
         static_cast<float>(modulo(static_cast<double>(esq.y), kPeriodoUV)));
 
-    // --- PASO 1: la GRILLA TEMPORAL DE ALTURAS --------------------------------
+    // --- PASO 1: la GRILLA TEMPORAL DE ALTURAS (con MARGEN) --------------------
     // Un nivel tiene (N+1) x (N+1) nodos (con N = 128: 129 x 129 = 16.641).
-    // `h` es un arreglo de ese tamaño con la ALTURA de cada nodo; se guarda
-    // "aplanado" en una sola fila de memoria: la fila i de la grilla ocupa
-    // h[i*fila] .. h[i*fila + N]. Eso es lo que calcula at(i, j) = i*fila + j.
+    // `alt` es un arreglo con la ALTURA de cada nodo; se guarda "aplanado" en
+    // una sola fila de memoria (fila tras fila).
     //   i = número de FILA    -> recorre el eje y del mundo
     //   j = número de COLUMNA -> recorre el eje x del mundo
     //
@@ -193,25 +191,85 @@ void Terrain::recalcular_vertices(Nivel& nv)
     //
     // Por qué una grilla aparte y no pedir la altura directo al armar cada
     // vértice: cada altura se usa VARIAS veces (la del vértice, la de las
-    // normales de sus 4 vecinos y la altura gruesa de los vecinos impares), y
+    // normales de sus vecinos y la altura gruesa de los vecinos impares), y
     // evaluar el ruido es lo CARO (varias octavas por punto). Así se evalúa
     // UNA vez por nodo y después se lee del arreglo.
-    std::vector<float> h(static_cast<std::size_t>(fila) * fila);
-    for (unsigned i = 0; i <= N_; ++i) {          // filas: de abajo (y chico) hacia arriba
-        for (unsigned j = 0; j <= N_; ++j) {      // columnas: de izquierda (x chico) a derecha
-            h[at(i, j)] = alturas_(esq.x + static_cast<float>(j) * p,
-                                   esq.y + static_cast<float>(i) * p);
+    //
+    // Práctico 09 (Parte 2) — EL MARGEN. La grilla se extiende kMargen = 2
+    // nodos MÁS ALLÁ del borde, de cada lado: i y j van de -2 a N+2 (133 x 133
+    // = 17.689 alturas, un 6 % más). Esos nodos no son vértices: solo se leen
+    // para las normales. Hacen falta por dos motivos:
+    //   a) NORMALES DEL BORDE. Las diferencias centrales necesitan el vecino de
+    //      cada lado. Hasta el Práctico 08, en el borde de la grilla faltaba
+    //      uno y se usaba una diferencia de UN SOLO LADO, que abarca un paso (p)
+    //      y no dos (2p); como la z de la normal seguía siendo 2p, la pendiente
+    //      del borde quedaba a la MITAD (normal demasiado vertical: con luz, el
+    //      borde de cada nivel se vería como una línea más clara u oscura). Con
+    //      el margen, el vecino existe: diferencias centrales en TODOS los
+    //      vértices, también en el borde. (Es la corrección "borde x 2" de la
+    //      decisión 9, pero exacta: el x 2 corregía el largo del paso; el margen
+    //      da además la misma diferencia CENTRAL que en el interior.)
+    //   b) NORMAL DEL NIVEL GRUESO (PASO 2, más abajo). Se calcula con los
+    //      nodos a DOS pasos (el paso del grueso es 2p): en el borde necesita
+    //      los nodos -2 y N+2.
+    constexpr int kMargen = 2;
+    const int lado = n + 1 + 2 * kMargen;   // nodos por lado de la grilla con margen
+    std::vector<float> alt(static_cast<std::size_t>(lado) * static_cast<std::size_t>(lado));
+    // Posición de (i, j) en el arreglo: se corre kMargen para que el nodo
+    // (-2, -2) quede en el índice 0.
+    auto at = [lado](int i, int j) {
+        return static_cast<std::size_t>(i + kMargen) * static_cast<std::size_t>(lado)
+             + static_cast<std::size_t>(j + kMargen);
+    };
+    for (int i = -kMargen; i <= n + kMargen; ++i) {        // filas: de abajo (y chico) hacia arriba
+        for (int j = -kMargen; j <= n + kMargen; ++j) {    // columnas: de izquierda (x chico) a derecha
+            alt[at(i, j)] = alturas_(esq.x + static_cast<float>(j) * p,
+                                     esq.y + static_cast<float>(i) * p);
         }
     }
+    auto H = [&](int i, int j) { return alt[at(i, j)]; };   // altura del nodo (i, j)
+
+    // NORMAL por DIFERENCIAS CENTRALES con los vecinos a `s` nodos de distancia:
+    //   s = 1 -> la normal de ESTE nivel (vecinos a un paso, p);
+    //   s = 2 -> la normal del nivel GRUESO (su paso es 2p: sus vecinos son los
+    //            nodos de este nivel a dos pasos).
+    // La normal es la dirección perpendicular a la superficie en ese punto: en
+    // lo plano apunta derecho hacia arriba (0, 0, 1) y en una ladera se inclina
+    // hacia el lado que BAJA.
+    //
+    // Se arma con dos vectores TANGENTES que salen de mirar a los vecinos
+    // (d = s·p es la distancia a cada vecino):
+    //   en x: del vecino izquierdo (j-s) al derecho (j+s):
+    //         Tx = (2d, 0, H[j+s] - H[j-s])   (avanza 2d y sube/baja eso)
+    //   en y: del vecino de abajo (i-s) al de arriba (i+s):
+    //         Ty = (0, 2d, H[i+s] - H[i-s])
+    // La normal es el producto vectorial Tx x Ty, que (dividido por 2d) da:
+    //         ( H[j-s] - H[j+s],  H[i-s] - H[i+s],  2d )
+    //           \_____ dx ____/   \_____ dy ____/
+    // y después se normaliza (largo 1).
+    //
+    // Ejemplos (s = 1):
+    //   - plano: dx = dy = 0 -> (0, 0, 2p) -> normal (0, 0, 1).
+    //   - sube hacia la derecha 1 paso por paso (45°): H[j+1] - H[j-1] = 2p
+    //     -> dx = -2p -> (-2p, 0, 2p) -> (-0.71, 0, 0.71): inclinada 45° hacia
+    //     la IZQUIERDA, el lado que baja.
+    // La componente z es SIEMPRE positiva (2d > 0): la normal apunta hacia
+    // arriba, como pide la guía (ahí dice "y", porque usa Y arriba).
+    auto normal_central = [&](int i, int j, int s) {
+        const float dx = H(i, j - s) - H(i, j + s);
+        const float dy = H(i - s, j) - H(i + s, j);
+        return glm::normalize(glm::vec3(dx, dy, 2.0f * static_cast<float>(s) * p));
+    };
 
     // --- PASO 2: los VÉRTICES, leyendo las alturas de la grilla ------------------
     // Para cada nodo: posición (RELATIVA a la esquina del nivel; el RenderItem
-    // la traslada al mundo), coordenadas de textura, normal por diferencias
-    // con los vecinos y altura en el nivel grueso (para el geomorphing).
-    for (unsigned i = 0; i <= N_; ++i) {
-        for (unsigned j = 0; j <= N_; ++j) {
-            Vertex& v = nv.datos.vertices[at(i, j)];
-            v.position = glm::vec3(static_cast<float>(j) * p, static_cast<float>(i) * p, h[at(i, j)]);
+    // la traslada al mundo), coordenadas de textura, normal, y la altura y la
+    // normal en el nivel grueso (para el geomorphing).
+    for (int i = 0; i <= n; ++i) {
+        for (int j = 0; j <= n; ++j) {
+            Vertex& v = nv.datos.vertices[static_cast<std::size_t>(i) * static_cast<std::size_t>(n + 1)
+                                          + static_cast<std::size_t>(j)];
+            v.position = glm::vec3(static_cast<float>(j) * p, static_cast<float>(i) * p, H(i, j));
             // (u, v) = posición en el mundo (módulo el período), en UNIDADES DE
             // ESCENA; el shader las pasa a "teselas" dividiendo por uTamTesela.
             // position.xy es la posición DENTRO del nivel (desde su esquina) y
@@ -219,51 +277,9 @@ void Terrain::recalcular_vertices(Nivel& nv)
             // es la posición en el mundo (módulo el período).
             v.tex_coords = origen_uv + glm::vec2(v.position.x, v.position.y);
 
-            // --- NORMAL por DIFERENCIAS CENTRALES (como en el Práctico 07) -------
-            // La normal es la dirección perpendicular a la superficie en ese
-            // punto: en lo plano apunta derecho hacia arriba (0, 0, 1) y en una
-            // ladera se inclina hacia el lado que BAJA.
-            //
-            // Se arma con dos vectores TANGENTES que salen de mirar a los vecinos:
-            //   en x: del vecino izquierdo (j-1) al derecho (j+1):
-            //         Tx = (2p, 0, h[j+1] - h[j-1])   (avanza 2p y sube/baja eso)
-            //   en y: del vecino de abajo (i-1) al de arriba (i+1):
-            //         Ty = (0, 2p, h[i+1] - h[i-1])
-            // La normal es el producto vectorial Tx x Ty, que (dividido por 2p)
-            // da exactamente:
-            //         ( h[j-1] - h[j+1],  h[i-1] - h[i+1],  2p )
-            //           \_____ dx ____/   \_____ dy ____/
-            // y después se normaliza (largo 1).
-            //
-            // Ejemplos:
-            //   - plano: dx = dy = 0 -> (0, 0, 2p) -> normal (0, 0, 1).
-            //   - sube hacia la derecha 1 paso por paso (45°): h[j+1] - h[j-1]
-            //     = 2p -> dx = -2p -> (-2p, 0, 2p) -> (-0.71, 0, 0.71): inclinada
-            //     45° hacia la IZQUIERDA, el lado que baja.
-            //
-            // Los ? : (operador ternario, "si ... entonces ... si no ...")
-            // resuelven los BORDES de la grilla, donde falta un vecino:
-            //   j == 0  (borde izquierdo, no hay j-1): usa el propio punto y el
-            //           de la derecha   -> h[j] - h[j+1]
-            //   j == N  (borde derecho, no hay j+1):  usa el de la izquierda y
-            //           el propio punto -> h[j-1] - h[j]
-            //   si no   (interior): la diferencia central h[j-1] - h[j+1].
-            // Igual para dy con i (borde de abajo i == 0, de arriba i == N).
-            // No se puede poner 0 en el borde: la normal quedaría vertical, y si
-            // las tres componentes fueran 0, normalizar sería una división por 0.
-            //
-            // DETALLE CONOCIDO (para el Práctico 09): en el borde la diferencia
-            // abarca UN paso (p) y no dos (2p), pero la z sigue siendo 2p: la
-            // pendiente del borde queda a la MITAD y esa normal sale un poco más
-            // vertical. Hoy no se nota (el 08 no ilumina). Con luz, se corrige
-            // multiplicando por 2 las dos diferencias de un solo lado.
-            const float dx = (j == 0U) ? (h[at(i, j)] - h[at(i, j + 1U)])
-                           : (j == N_) ? (h[at(i, j - 1U)] - h[at(i, j)])
-                           :             (h[at(i, j - 1U)] - h[at(i, j + 1U)]);
-            const float dy = (i == 0U) ? (h[at(i, j)] - h[at(i + 1U, j)])
-                           : (i == N_) ? (h[at(i - 1U, j)] - h[at(i, j)])
-                           :             (h[at(i - 1U, j)] - h[at(i + 1U, j)]);
-            v.normal = glm::normalize(glm::vec3(dx, dy, 2.0f * p));
+            // NORMAL de este nivel: diferencias centrales en TODOS los vértices
+            // (P09: gracias al margen, también en el borde; ver PASO 1).
+            v.normal = normal_central(i, j, 1);
 
             // ETAPA 2 — z_c: altura de este punto en el NIVEL GRUESO (paso 2p).
             // Los vértices de índice PAR coinciden con vértices del grueso
@@ -277,11 +293,34 @@ void Terrain::recalcular_vertices(Nivel& nv)
             //                     la misma que usa la triangulación (a -> c, de
             //                     (i-1, j-1) a (i+1, j+1)).
             // N es par, así que un índice impar siempre tiene vecinos i±1.
-            const bool ii = (i % 2U) != 0U, jj = (j % 2U) != 0U;
-            if (!ii && !jj)     v.altura_gruesa = h[at(i, j)];
-            else if (!ii && jj) v.altura_gruesa = 0.5f * (h[at(i, j - 1U)] + h[at(i, j + 1U)]);
-            else if (ii && !jj) v.altura_gruesa = 0.5f * (h[at(i - 1U, j)] + h[at(i + 1U, j)]);
-            else                v.altura_gruesa = 0.5f * (h[at(i - 1U, j - 1U)] + h[at(i + 1U, j + 1U)]);
+            //
+            // Práctico 09 (Parte 2) — n_c: la NORMAL de este punto en el nivel
+            // GRUESO, con la MISMA regla de pares e impares:
+            //   - en un vértice del grueso (par, par) es la normal que calcula
+            //     el propio nivel grueso: diferencias centrales con SU paso, 2p
+            //     (normal_central con s = 2). Es el mismo número que obtiene el
+            //     nivel grueso al recalcular sus vértices, porque lee las mismas
+            //     alturas del mismo ruido en los mismos puntos del mundo.
+            //   - en un punto impar, el grueso no tiene vértice: la GPU, al
+            //     dibujar el grueso, INTERPOLA ahí las normales de los dos
+            //     extremos de la arista (o de la diagonal). Se hace lo mismo:
+            //     el promedio de esas dos normales gruesas (normalizado).
+            // Así, en el borde del anillo (α = 1), el fino tiene la forma Y la
+            // normal del grueso: la luz no salta de un nivel al otro.
+            const bool ii = (i % 2) != 0, jj = (j % 2) != 0;   // ¿fila impar? ¿columna impar?
+            if (!ii && !jj) {
+                v.altura_gruesa = H(i, j);
+                v.normal_gruesa = normal_central(i, j, 2);
+            } else if (!ii && jj) {
+                v.altura_gruesa = 0.5f * (H(i, j - 1) + H(i, j + 1));
+                v.normal_gruesa = glm::normalize(normal_central(i, j - 1, 2) + normal_central(i, j + 1, 2));
+            } else if (ii && !jj) {
+                v.altura_gruesa = 0.5f * (H(i - 1, j) + H(i + 1, j));
+                v.normal_gruesa = glm::normalize(normal_central(i - 1, j, 2) + normal_central(i + 1, j, 2));
+            } else {
+                v.altura_gruesa = 0.5f * (H(i - 1, j - 1) + H(i + 1, j + 1));
+                v.normal_gruesa = glm::normalize(normal_central(i - 1, j - 1, 2) + normal_central(i + 1, j + 1, 2));
+            }
         }
     }
     nv.malla.actualizar_vertices(nv.datos.vertices);

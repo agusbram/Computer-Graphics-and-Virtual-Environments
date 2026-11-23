@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // iluminacion.glsl — código GLSL COMÚN a los fragment shaders de la escena
-// (Práctico 09, Parte 1)
+// (Práctico 09: Parte 1, el archivo común; Parte 2, la luz del suelo)
 //
 // El terreno, el avión y el fondo (que pinta el suelo continuado) tienen que
 // usar EL MISMO sol y LA MISMA niebla: si uno usara otro modelo u otros
@@ -50,7 +50,8 @@ uniform float uNieblaFin;     // distancia donde es TOTAL; <= 0 -> niebla apagad
 
 // --- Material (Partes 2 y 3) ----------------------------------------------------
 // Coeficientes del modelo de Phong de UN objeto. Es un dato del OBJETO, no de
-// la escena: el terreno lo arma con su textura y el avión lo recibe por pieza.
+// la escena: el suelo lo arma con su textura (iluminar_suelo, más abajo) y el
+// avión lo recibirá por pieza (Parte 3).
 struct Material
 {
     vec3  kd;    // coeficiente difuso (y ambiente: ka = kd, lo habitual)
@@ -61,8 +62,21 @@ struct Material
 // Modelo de iluminación de PHONG con UNA luz direccional (el sol).
 //   P: posición del punto, en mundo.   N: normal en mundo, YA normalizada.
 // Devuelve el color iluminado: ambiente + difusa + especular.
-// (Se usa desde la Parte 2. En la Parte 1 nadie la llama todavía: por eso los
-// uniforms del sol no aparecen en ningún programa.)
+// Desde la Parte 2 la usa el SUELO (malla del terreno y suelo continuado, a
+// través de iluminar_suelo, más abajo); desde la Parte 3, también el avión.
+//
+// Las tres componentes, con los valores de la escena (sol 0,7, ambiente 0,3):
+//   ambiente : uAmbiente·kd. La luz que "rebota por todos lados": llega igual a
+//              todos los puntos, aun a los que no ven el sol. Sin ella, las
+//              laderas en sombra quedarían NEGRAS.
+//   difusa   : uSolColor·kd·max(N·L, 0). Ley de Lambert: una superficie
+//              recibe más luz cuanto más de FRENTE mira al sol (N·L = coseno
+//              del ángulo entre la normal y la dirección al sol). Es la que
+//              hace VISIBLE EL RELIEVE: las laderas hacia el sol quedan claras
+//              y las de atrás, oscuras. No depende de dónde esté el ojo.
+//   especular: uSolColor·ks·max(R·V, 0)^ns. El BRILLO: el reflejo del sol
+//              como en un espejo (R) visto desde el ojo (V). Es la única que
+//              cambia al mover la cámara. En el suelo ks = 0: no aparece.
 vec3 iluminar(vec3 P, vec3 N, Material m)
 {
     vec3  L     = uSolDir;                  // direccional: la MISMA en todos los puntos
@@ -77,6 +91,49 @@ vec3 iluminar(vec3 P, vec3 N, Material m)
         especular = uSolColor * m.ks * pow(max(dot(R, V), 0.0), m.ns);
     }
     return ambiente + difusa + especular;
+}
+
+// --- El SUELO: su material y la verificación de la tecla B (Parte 2) ----------
+// El suelo se dibuja con DOS programas: la MALLA del terreno (terreno.fs) y el
+// SUELO CONTINUADO más allá de la malla (fondo.fs). La guía pide que el suelo
+// continuado se ilumine "con la misma función y con el mismo material que la
+// malla"; si no, se vería el borde de la ventana de terreno. Por eso el
+// material del suelo se escribe UNA sola vez, acá, y los dos programas llaman a
+// iluminar_suelo() en lugar de armar cada uno su Material.
+
+// Modo de iluminación del suelo (tecla B), para la verificación de la guía:
+// comparar la MISMA escena, desde la MISMA cámara, en tres modos.
+//   0 = con luz y las normales del terreno (Práctico 07, con las correcciones
+//       del Práctico 09): el relieve se ve.
+//   1 = sin luz: el color es directamente kd (la textura), como en el
+//       Práctico 08: el relieve casi no se ve.
+//   2 = con luz, pero con TODAS las normales reemplazadas por la vertical
+//       (0, 0, 1): el relieve desaparece (salvo su contorno contra el cielo)
+//       aunque la geometría es la misma. Muestra que lo que se percibe del
+//       relieve viene de la NORMAL y no de la posición de los vértices.
+// (La guía dice (0, 1, 0) porque usa Y arriba; esta escena es Z-ARRIBA.)
+uniform int uModoSuelo;
+
+// Ilumina un punto del suelo.
+//   P : posición en mundo.  N : normal en mundo, normalizada.  kd : el color
+//   del pasto en ese punto (la textura; o el color plano de depuración, tecla L).
+// MATERIAL DEL SUELO (decisión 7): kd = la textura y SIN brillo especular,
+// ks = 0. Con ks > 0 toda la superficie brilla igual y, mirando hacia el sol,
+// el pasto se ve mojado o de plástico. Con ks = 0 el valor de ns no importa
+// (multiplica a cero); se deja en 1.
+vec3 iluminar_suelo(vec3 P, vec3 N, vec3 kd)
+{
+    if (uModoSuelo == 1) {                  // B: sin luz -> el color es kd (como el P08)
+        return kd;
+    }
+    if (uModoSuelo == 2) {                  // B: normal constante (vertical, Z arriba)
+        N = vec3(0.0, 0.0, 1.0);
+    }
+    Material m;
+    m.kd = kd;                              // la textura ES el coeficiente difuso
+    m.ks = vec3(0.0);                       // el pasto no brilla
+    m.ns = 1.0;                             // sin efecto con ks = 0
+    return iluminar(P, N, m);
 }
 
 // NIEBLA: mezcla el color con el de la niebla según la distancia del punto P

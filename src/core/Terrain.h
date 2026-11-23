@@ -65,7 +65,8 @@ private:
 //   esquina: posición (x,z) de la esquina (0,0) de la grilla en el mundo
 //   altura : fuente de alturas (x,z) -> altura (unidades de escena)
 // Devuelve vértices (posición + normal) e índices. La normal del borde usa una
-// diferencia de un solo lado (no se puede dejar en cero: normalizar 0 es indef.).
+// diferencia de un solo lado (no se puede dejar en cero: normalizar 0 es indef.),
+// multiplicada por 2 para que quede en la misma escala que la del interior (P09).
 //
 // `template <typename FuenteAltura>`: es GENÉRICO. Solo necesita algo
 // "invocable" que dado (x,z) devuelva la altura -> sirve la clase Alturas, una
@@ -90,15 +91,29 @@ MeshData generar_malla_terreno(unsigned N, float paso,
 
     // Normal hacia arriba por DIFERENCIAS CENTRADAS (o de un lado en el borde).
     // Para z = f(x, y):  n = normalize( (-df/dx, -df/dy, 1) ).
+    //
+    // Práctico 09 (Parte 2) — CORRECCIÓN DEL BORDE x 2 (decisión 9). Adentro,
+    // la diferencia central abarca DOS pasos (de j-1 a j+1) y la z de la normal
+    // es 2·paso: las dos están en la misma escala. En el borde falta un vecino
+    // y la diferencia es de UN SOLO LADO: abarca UN paso. Antes se dejaba así
+    // con la misma z = 2·paso, y la pendiente del borde salía a la MITAD (una
+    // normal más vertical de lo que es). Se corrige multiplicando por 2 la
+    // diferencia de un solo lado, para llevarla a la escala de 2 pasos.
+    // (Hasta el P08 no se notaba porque la normal no se usaba. Además, el
+    // terreno con LOD ya no usa estas normales: Terrain::recalcular_vertices
+    // las reemplaza por diferencias centrales con una grilla con MARGEN, que no
+    // tiene este problema. Se corrige igual porque es la función de la guía y
+    // tiene que dar la normal correcta en cualquier malla que genere.)
+    // OJO: el borde es j == N (el último vértice), no j + 1 == N; con esta
+    // última condición, el vértice N - 1 hacía una diferencia de un lado y el
+    // vértice N leía h(i, N + 1), fuera de la grilla (otra altura del ruido).
     auto normal = [&](unsigned i, unsigned j) {
-        const float dx = (j == 0U)      ? (h(i, j)   - h(i, j + 1U))
-                       : (j + 1U == N) ? (h(i, j - 1U) - h(i, j))
-                       :                 (h(i, j - 1U) - h(i, j + 1U));
-        const float dy = (i == 0U)      ? (h(i, j)   - h(i + 1U, j))
-                       : (i + 1U == N) ? (h(i - 1U, j) - h(i, j))
-                       :                 (h(i - 1U, j) - h(i + 1U, j));
-        // En los bordes el denominador es 1·paso; adentro, 2·paso. Se normaliza,
-        // así que el factor común se cancela y no hace falta distinguirlo.
+        const float dx = (j == 0U) ? 2.0f * (h(i, j)   - h(i, j + 1U))
+                       : (j == N)  ? 2.0f * (h(i, j - 1U) - h(i, j))
+                       :                    (h(i, j - 1U) - h(i, j + 1U));
+        const float dy = (i == 0U) ? 2.0f * (h(i, j)   - h(i + 1U, j))
+                       : (i == N)  ? 2.0f * (h(i - 1U, j) - h(i, j))
+                       :                    (h(i - 1U, j) - h(i + 1U, j));
         return glm::normalize(glm::vec3(dx, dy, 2.0f * paso));
     };
 
@@ -166,7 +181,7 @@ MeshData generar_malla_terreno(unsigned N, float paso,
 //
 // ETAPA 2 (esta): se eliminan con dos técnicas del paper (§6.2):
 //   a) GEOMORPHING: cada vértice guarda también z_c (altura en el nivel grueso,
-//      campo Vertex::altura_gruesa). El vertex shader (solid.vs) mezcla
+//      campo Vertex::altura_gruesa). El vertex shader (terreno.vs) mezcla
 //      z' = (1-α)·z + α·z_c, con α = 0 adentro y α = 1 en el borde exterior
 //      (rampa de ancho w = N/10 celdas). En el borde el fino coincide con el
 //      grueso (sin grietas) y, como α depende de la posición CONTINUA del
@@ -175,6 +190,17 @@ MeshData generar_malla_terreno(unsigned N, float paso,
 //      más grueso): unen cada vértice impar con sus dos vecinos pares. Tras el
 //      morph los tres quedan alineados (área 0, no se ven), pero tapan las
 //      rendijas de un píxel que deja el redondeo de coma flotante.
+//
+// PRÁCTICO 09 (Parte 2), con la luz aparecen dos detalles de las NORMALES:
+//   c) GEOMORPHING DE LA NORMAL: cada vértice guarda también n_c (la normal en
+//      el nivel grueso, Vertex::normal_gruesa) y terreno.vs la mezcla con el
+//      MISMO α: n' = (1-α)·n + α·n_c. Si solo se morfeara la altura, en el
+//      borde de cada anillo la luz saltaría (normales del fino contra las del
+//      grueso) y se verían los anillos.
+//   d) NORMALES DEL BORDE: la grilla temporal de alturas tiene un MARGEN de 2
+//      nodos alrededor del nivel, así todas las normales (y las del grueso) se
+//      calculan con diferencias centrales, también en el borde.
+//
 // Simplificación respecto del paper: no se usa direccionamiento toroidal; al
 // moverse un nivel se recalculan todas sus alturas (como la ventana infinita
 // del Práctico 07, pero por nivel: los gruesos casi nunca se mueven).
@@ -245,7 +271,7 @@ private:
 
     glm::vec2 esquina(const Nivel& nv) const;             // centro - (N/2)·paso_l
     glm::vec2 centro_para(float paso_l, const glm::vec3& pos) const;
-    void recalcular_vertices(Nivel& nv);                   // alturas + normales
+    void recalcular_vertices(Nivel& nv);                   // alturas + normales (y las del grueso)
     glm::ivec2 calcular_hueco(std::size_t l) const;        // dónde cae el nivel l-1
     void armar_indices(Nivel& nv, bool cerrar_borde) const; // grilla - hueco (+ área 0)
 

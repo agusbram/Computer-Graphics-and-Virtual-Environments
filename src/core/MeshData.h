@@ -39,6 +39,11 @@ struct Vertex {
     // vértices pares). El vertex shader mezcla z y z_c cerca del borde del
     // anillo (geomorphing). Las demás mallas (avión) no la usan: queda en 0.
     float altura_gruesa = 0.0f;
+    // Práctico 09 (Parte 2), LOD + luz: la NORMAL que tendría este punto en el
+    // NIVEL MÁS GRUESO. El vertex shader del terreno la mezcla con `normal`
+    // usando el MISMO α que mezcla z con z_c: así, en el borde del anillo, la
+    // luz del fino coincide con la del grueso. Las demás mallas no la usan.
+    glm::vec3 normal_gruesa {0.0f, 0.0f, 1.0f};
 };
 
 struct MeshData {

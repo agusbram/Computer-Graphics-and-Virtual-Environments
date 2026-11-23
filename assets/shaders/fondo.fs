@@ -26,6 +26,12 @@
 // código común, la MISMA que la malla (si no, se vería el borde). Para eso hace
 // falta el punto del suelo en MUNDO, P = uOjo + t·d (uOjo viene del código
 // común: por eso este archivo NO lo declara, sería una redefinición).
+//
+// Práctico 09 (Parte 2): el suelo continuado se ILUMINA con la misma función y
+// el mismo material que la malla (iluminar_suelo, código común). Su normal es
+// la de un plano horizontal: (0, 0, 1) en esta escena Z-arriba (la guía dice
+// (0, 1, 0) porque usa Y arriba). El CIELO no se ilumina: el cubemap ya es la
+// foto de un cielo iluminado.
 // -----------------------------------------------------------------------------
 
 // ENTRADA (in): la dirección de este píxel, interpolada desde fondo.vs (en el
@@ -46,8 +52,9 @@ uniform vec2  uOjoUV;            // posición (x, y) del ojo en el mundo, MÓDUL
 uniform float uAlturaOjo;        // altura del ojo SOBRE el plano del suelo (unidades de escena)
 uniform float uTamTesela;        // tamaño de una tesela (el mismo uTamTesela del terreno)
 
-// La niebla (uNieblaColor, uNieblaInicio, uNieblaFin, aplicar_niebla) y la
-// posición del ojo en mundo (uOjo) vienen de iluminacion.glsl.
+// La luz (uSolDir, uSolColor, uAmbiente, uModoSuelo, iluminar_suelo), la niebla
+// (uNieblaColor, uNieblaInicio, uNieblaFin, aplicar_niebla) y la posición del
+// ojo en mundo (uOjo) vienen de iluminacion.glsl.
 
 // Dirección de NUESTRA escena (Z arriba) -> convención del cubemap (Y arriba).
 // (x, y, z) -> (x, z, -y) es una ROTACIÓN de -90° alrededor del eje X: lleva
@@ -91,12 +98,20 @@ void main()
     // MISMA regla que la malla: posición en el mundo / tamaño de la tesela. Hacia
     // el horizonte las (u, v) cambian muy rápido entre píxeles vecinos y el
     // mipmap usa niveles cada vez más chicos: queda el color promedio del pasto.
-    vec3 suelo = texture(uTexturaSuelo, xy / uTamTesela).rgb;   // color del pasto en ese punto
+    vec3 kd_suelo = texture(uTexturaSuelo, xy / uTamTesela).rgb;   // color del pasto en ese punto (= kd)
     // El mismo punto del suelo, pero en MUNDO (origen flotante), para el código
     // común: P = ojo + t·d. Su distancia al ojo es t (d es unitaria), la misma
     // que se usaba en el Práctico 08. Su altura es uOjo.z - uAlturaOjo (el plano).
     vec3 P_suelo = uOjo + t * d;
-    suelo = aplicar_niebla(suelo, P_suelo);        // la MISMA niebla que la malla
+    // P09 (Parte 2): la LUZ, con la MISMA función y el MISMO material que la
+    // malla (kd = textura, ks = 0) y la normal del plano horizontal. Como la
+    // luz es direccional, en todo el plano da el MISMO resultado que en una
+    // parte plana de la malla: no se ve el borde de la ventana de terreno (salvo
+    // donde la malla tiene relieve justo en el borde; ahí la orientación de la
+    // malla y la del plano difieren, y lo disimula la niebla).
+    const vec3 N_PLANO = vec3(0.0, 0.0, 1.0);      // normal del plano horizontal (Z arriba)
+    vec3 suelo = iluminar_suelo(P_suelo, N_PLANO, kd_suelo);
+    suelo = aplicar_niebla(suelo, P_suelo);        // la MISMA niebla que la malla, DESPUÉS de la luz
 
     // Las TRES texturas se leyeron siempre, ANTES de elegir: el filtrado con
     // mipmaps compara coordenadas de píxeles vecinos y dentro de un if eso no
