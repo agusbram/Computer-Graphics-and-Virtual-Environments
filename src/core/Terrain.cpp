@@ -378,7 +378,11 @@ void Terrain::collect(std::vector<RenderItem>& items) const
         RenderItem item;
         item.mesh  = &niveles_[l].malla;
         item.model = niveles_[l].modelo;
-        item.color = colores_niveles_ ? paleta[l % 8U] : color_;
+        // P09: el color va en el kd del material (el RenderItem ya no tiene
+        // `color`). Del material del terreno solo se usa kd, y solo cuando no
+        // hay textura (colores por nivel, tecla L): ks y ns los fija
+        // iluminar_suelo() (ks = 0), igual para la malla y el suelo continuado.
+        item.material.kd = colores_niveles_ ? paleta[l % 8U] : color_;
         // Práctico 08: textura del suelo. Con los colores de depuración (L) se
         // dibuja con color plano para que se vean los anillos.
         item.textura = colores_niveles_ ? nullptr : textura_;

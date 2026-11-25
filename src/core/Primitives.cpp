@@ -173,13 +173,12 @@ MeshData cone(float radio, float conicidad, unsigned gajos, unsigned anillos)
     const float sn = std::sin(semi);                 // componente axial de la normal
 
     const unsigned per_ring = gajos + 1U;            // N + 1 por la costura
-    // anillos anillos del lateral + 1 vertice del apice.
-    mesh.vertices.reserve(static_cast<size_t>(anillos) * per_ring + 1U);
-    mesh.indices.reserve(static_cast<size_t>(anillos) * gajos * 3U);
+    // anillos anillos del lateral + N vertices del apice (uno por gajo, P09).
+    mesh.vertices.reserve(static_cast<size_t>(anillos) * per_ring + gajos);
+    mesh.indices.reserve(static_cast<size_t>(anillos) * gajos * 6U);
 
     // 1) Vértices del lateral: anillos que suben achicando el radio hasta el
-    //    apice. El apice se agrega al final como un UNICO vertice (normal
-    //    axial, no comparte con el lateral).
+    //    apice. Los vertices del apice se agregan al final (paso 1b).
     for (unsigned r = 0; r < anillos; ++r) {
         const float f = static_cast<float>(r) / static_cast<float>(anillos);
         const float y  = -largo * 0.5f + f * largo;  // base abajo, apice arriba
@@ -200,21 +199,45 @@ MeshData cone(float radio, float conicidad, unsigned gajos, unsigned anillos)
         }
     }
 
-    // Ápice: un solo vertice, en la punta, normal axial hacia arriba.
-    {
+    // 1b) Ápice: UN VÉRTICE POR GAJO (Práctico 09, Parte 3; antes era uno solo).
+    //
+    //   Hasta el Práctico 08 el ápice era un único vértice con normal AXIAL
+    //   (0, 1, 0). Sin luz no importaba, pero con luz se nota: cada triángulo
+    //   del abanico INTERPOLA la normal entre la lateral (en la base) y la
+    //   axial (en la punta). Con 1 anillo el abanico es TODO el lateral, y a
+    //   media altura la normal quedaba desviada ~33° hacia el eje: el cono se
+    //   iluminaba como una ojiva redondeada y no como un cono.
+    //
+    //   En la punta la normal NO está definida (cada gajo llega con la suya).
+    //   La solución habitual es repetir el ápice: N vértices en el MISMO
+    //   punto, uno por gajo, cada uno con la normal lateral del MEDIO de su
+    //   gajo (ángulo th + medio gajo). Así cada triángulo del abanico tiene
+    //   normales laterales en sus tres vértices y la luz del cono es correcta
+    //   hasta la punta. (Es el mismo motivo por el que el cubo tiene 24
+    //   vértices y no 8: un atributo distinto en el mismo punto obliga a
+    //   duplicar el vértice.)
+    //
+    //   La coordenada de textura sigue siendo (0.5, 1) en todos: así la
+    //   imagen se aplica EXACTAMENTE igual que en el Práctico 08 (la
+    //   "proyección radial" documentada ahí); solo cambia la normal.
+    //
+    //   (La esfera NO cambia: en el polo de una esfera la normal SÍ está
+    //   definida y es la axial, así que un solo vértice es correcto.)
+    const unsigned apex_base = static_cast<unsigned>(anillos) * per_ring;   // índice del primer ápice
+    for (unsigned j = 0; j < gajos; ++j) {
+        const float th = kTwoPi * (static_cast<float>(j) + 0.5f) / static_cast<float>(gajos);
         Vertex apex;
-        apex.position   = glm::vec3(0.0f, largo * 0.5f, 0.0f);
-        apex.normal     = glm::vec3(0.0f, 1.0f, 0.0f);
-        apex.tex_coords = glm::vec2(0.5f, 1.0f);
+        apex.position   = glm::vec3(0.0f, largo * 0.5f, 0.0f);       // todos en la punta
+        apex.normal     = glm::vec3(cs * std::cos(th), sn, cs * std::sin(th));  // lateral, medio del gajo
+        apex.tex_coords = glm::vec2(0.5f, 1.0f);                     // como en el P08
         mesh.vertices.push_back(apex);
     }
-    const unsigned apex_idx = static_cast<unsigned>(anillos) * per_ring;
 
     // 2) Índices.
     //    - Entre anillos consecutivos: banda de cuadrilateros como en el
     //      cilindro (el radio del anillo superior ya es menor).
     //    - Ultima banda: abanico de triangulos entre el ultimo anillo y el
-    //      apice, en sentido antihorario: {b0, apex, b1}.
+    //      apice DE ESE GAJO, en sentido antihorario: {b0, apice_j, b1}.
     for (unsigned r = 0; r < anillos; ++r) {
         const unsigned bottom = r * per_ring;
         const bool last_band = (r == anillos - 1U);
@@ -224,7 +247,7 @@ MeshData cone(float radio, float conicidad, unsigned gajos, unsigned anillos)
                 const unsigned b0 = bottom + j;
                 const unsigned b1 = b0 + 1U;
                 mesh.indices.push_back(b0);
-                mesh.indices.push_back(apex_idx);
+                mesh.indices.push_back(apex_base + j);   // el ápice de este gajo
                 mesh.indices.push_back(b1);
             }
         } else {
@@ -288,8 +311,9 @@ MeshData sphere(float radio, unsigned gajos, unsigned anillos)
     mesh.indices.reserve(static_cast<size_t>(anillos) * gajos * 3U);
 
     // 1) Vértices: polo sur, anillos de latitud intermedios y polo norte.
-    //    Los polos son un UNICO vertice con normal axial (criterio del apice
-    //    del cono): la normal no esta definida en el polo, se elige la axial.
+    //    Los polos son un UNICO vertice con normal axial. En la esfera eso es
+    //    correcto: la superficie es lisa en el polo y su normal ES la axial
+    //    (en el apice del cono no lo era: ver cone(), P09).
     {
         Vertex pole;
         pole.position   = glm::vec3(0.0f, -radio, 0.0f);

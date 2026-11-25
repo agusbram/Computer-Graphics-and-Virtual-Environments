@@ -291,6 +291,14 @@ void Shader::set_uniform(int ubicacion, int valor) const
     glProgramUniform1i(id_, ubicacion, valor);
 }
 
+// mat3 (P09: la matriz normal de cada pieza). Igual que la mat4: GL_FALSE =
+// sin transponer, porque glm guarda las matrices por COLUMNAS, que es lo que
+// espera OpenGL.
+void Shader::set_uniform(int ubicacion, const glm::mat3& m) const
+{
+    glProgramUniformMatrix3fv(id_, ubicacion, 1, GL_FALSE, &m[0][0]);
+}
+
 // Versiones por NOMBRE: buscan la ubicación y llaman a la de arriba. Son
 // cómodas pero buscan el nombre en CADA llamada: para lo que se envía en cada
 // cuadro conviene guardar la ubicación (loc) y usar la versión con int.

@@ -24,8 +24,9 @@
 //   1. La cantidad de MALLAS y de MATRICES LOCALES no coincide: piezas
 //      distintas pueden compartir malla (las cuatro placas —ala izquierda,
 //      ala derecha, estabilizador horizontal y deriva— usan la MISMA malla
-//      del cubo) y difieren solo en su matriz local. En este modelo hay
-//      4 mallas y 7 piezas (y 7 matrices locales). La separación es la que
+//      del cubo; desde el P09 la nariz y la cola usan el MISMO cono
+//      unitario) y difieren solo en su matriz local. En este modelo hay
+//      3 mallas y 7 piezas (y 7 matrices locales). La separación es la que
 //      va a permitir, más adelante, reemplazar el modelo por uno cargado
 //      desde un archivo (.obj) sin tocar el resto del programa.
 //   2. Ninguna pieza simétrica usa escalado negativo (rompe el winding):
@@ -73,7 +74,8 @@ public:
     void update(const FlightData& flight);
 
     // Agrega a items un RenderItem por pieza, con la transformación ya
-    // compuesta (pose * local) y lista para dibujar.
+    // compuesta (pose * local) y lista para dibujar. P09: con el Material de
+    // la pieza (kd = el color de la apariencia; ks y ns según la apariencia).
     void collect(std::vector<RenderItem>& items) const;
 
     // Práctico 08: cómo se pinta la aeronave (ver AparienciaAvion). La textura
@@ -84,7 +86,7 @@ public:
 private:
     std::vector<Mesh>          piezas_;    // mallas DISTINTAS (una por malla)
     std::vector<glm::mat4>     locales_;   // matriz local por PIEZA (fija)
-    std::vector<glm::vec3>     colores_;   // color por PIEZA
+    std::vector<glm::vec3>     colores_;   // color por PIEZA (P09: el kd del modo "colores")
     std::vector<std::size_t>   malla_de_;  // qué malla usa cada pieza
     std::vector<glm::vec2>     escalas_uv_;  // repeticiones de la CHAPA por PIEZA (P08)
     std::vector<glm::vec2>     escalas_camuflaje_;  // repeticiones del CAMUFLAJE por PIEZA (P08)

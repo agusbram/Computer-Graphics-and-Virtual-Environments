@@ -18,25 +18,34 @@
 // descartadas: un identificador numérico (el dibujo tendría que buscar la
 // textura en una tabla) o un shader distinto por tipo de pieza (multiplica
 // programas para un dato que es solo "qué imagen").
+//
+// Práctico 09 (Parte 3) — MATERIAL EN LUGAR DEL COLOR. El color pasa a ser el
+// coeficiente kd de un Material {kd, ks, ns} (Material.h), como propone la guía
+// (decisión 6). En el avión viaja a uMaterial (el struct del código común); en
+// el terreno solo se usa kd (su uColor de depuración, tecla L), porque el
+// material del suelo está fijo en iluminar_suelo() (ks = 0).
+// La MATRIZ NORMAL no se guarda acá: sale de `model` y la calcula el código de
+// dibujo (dibujar_items, en main) al enviar cada pieza.
 // -----------------------------------------------------------------------------
 
 #pragma once
 
-#include <glm/glm.hpp>     // glm::mat4, vec3, vec2: matriz de modelo, color y escala de textura
+#include <glm/glm.hpp>     // glm::mat4, vec3, vec2: matriz de modelo, morph y escala de textura
 
+#include "core/Material.h" // Material: kd, ks, ns de la pieza (P09)
 #include "core/Mesh.h"     // Mesh: la malla que se dibuja (puntero, no es dueño)
 #include "core/Texture.h"  // Texture: la textura que se usa (puntero, no es dueño)
 
 struct RenderItem {
     const Mesh* mesh = nullptr;          // malla en la GPU (VAO/VBO/EBO); referencia, no propia
     glm::mat4   model = glm::mat4(1.0f); // matriz de modelo del objeto (calculada en CPU)
-    glm::vec3   color = glm::vec3(1.0f); // color de la pieza (uColor)
+    Material    material;                // P09: kd (el color de antes), ks y ns de la pieza
     // Geomorphing (Práctico 07, LOD, uMorph): (paso del nivel, media extensión en
     // celdas, ancho de transición en celdas). paso = 0 -> SIN morph (el avión
     // y cualquier malla que no sea un nivel del clipmap).
     glm::vec3   morph = glm::vec3(0.0f);
     // Práctico 08: textura de la pieza (no propia). nullptr -> color plano.
-    // Con textura, el shader de la aeronave usa  color * textura  (la textura
+    // Con textura, el shader de la aeronave usa  kd * textura  (la textura
     // TIÑE el color: aporta detalle), y el del terreno usa la textura sola.
     const Texture* textura = nullptr;
     // Práctico 08: cuántas veces se repite la textura sobre la pieza en (u, v).

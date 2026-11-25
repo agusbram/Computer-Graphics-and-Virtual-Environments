@@ -1,6 +1,15 @@
 // -----------------------------------------------------------------------------
 // main.cpp — la aplicación (Prácticos 04 a 09)
 //
+// Lo nuevo del Práctico 09, Parte 3 — la AERONAVE ILUMINADA:
+//   1. Cada pieza lleva un MATERIAL {kd, ks, ns} en su RenderItem en lugar del
+//      color (kd = el color de antes; ks y ns según la apariencia). Se envía al
+//      uniform struct uMaterial de aeronave.fs (dibujar_items).
+//   2. La MATRIZ NORMAL G = (M^-1)^T de cada pieza se calcula en la CPU, una
+//      vez por pieza, y viaja como uniform mat3 (dibujar_items).
+//   3. Teclas de verificación: V (normales como color), X (M en lugar de la
+//      matriz normal, para ver el error) y R (Phong / Blinn-Phong).
+//
 // Lo nuevo del Práctico 09, Parte 2 — el TERRENO ILUMINADO por el sol:
 //   1. La malla del terreno y el suelo continuado se iluminan con el modelo de
 //      Phong (iluminar_suelo, código común): kd = la textura, ks = 0.
@@ -156,13 +165,26 @@ struct AppContext {
     int   modo_suelo = 0;           // B: 0 con luz, 1 sin luz (como el P08), 2 normal constante
     float sol_elevacion = 30.0f;    // O/P: elevación del sol, en grados sobre el horizonte
     float sol_elevacion_pintado = 30.0f;   // H: la del sol pintado en el cubemap (la calcula el Skybox)
+    bool  ver_normales  = false;    // V: el avión pinta su normal como color (Parte 3)
+    bool  matriz_normal = true;     // X: true = matriz normal G (lo correcto); false = M (el error)
+    bool  blinn_phong   = false;    // R: false = Phong (R·V), true = Blinn-Phong (N·H, ns x 4)
 };
 
 // Práctico 08: ubicaciones de los uniforms "por pieza" de un programa. Se buscan
 // UNA vez (con Shader::loc) y se usan en cada draw call. Las que un programa no
 // tiene quedan en -1: glProgramUniform* con ubicación -1 no hace nada.
+// Práctico 09 (Parte 3): el color pasa a ser el MATERIAL (kd, ks, ns) y se
+// agrega la MATRIZ NORMAL. Qué usa cada programa:
+//   aeronave: kd/ks/ns -> uMaterial.kd/.ks/.ns (uniform struct); normal ->
+//             uNormalMatrix.
+//   terreno : kd -> uColor (el color plano de depuración, tecla L); sin ks/ns
+//             (el material del suelo está fijo en iluminar_suelo) y SIN matriz
+//             normal: su modelo es solo una traslación, la normal local ya es
+//             la de mundo (decisión 8).
 struct UniformsPieza {
-    int modelo = -1, color = -1, usar_textura = -1, escala_uv = -1, morph = -1;
+    int modelo = -1, usar_textura = -1, escala_uv = -1, morph = -1;
+    int kd = -1, ks = -1, ns = -1;   // P09: el material de la pieza
+    int normal = -1;                 // P09: la matriz normal (mat3)
 };
 
 // Práctico 08: uniforms de la CÁMARA de un programa: iguales para todas las
@@ -187,13 +209,35 @@ static UniformsEscena buscar_uniforms_escena(const Shader& shader)
 // sube sus uniforms, conecta su textura (si tiene) a la unidad 0 y emite UN
 // draw call. Es el bucle que antes estaba en main, ahora reutilizado por los
 // dos programas (terreno y aeronave).
+//
+// Práctico 09 (Parte 3): envía también el MATERIAL y la MATRIZ NORMAL.
+//   usar_matriz_normal (tecla X): true = G = (M^-1)^T, lo correcto; false =
+//   la parte 3x3 de M, el error que la guía pide comparar.
 static void dibujar_items(const Shader& shader, const UniformsPieza& u,
-                          const std::vector<RenderItem>& items)
+                          const std::vector<RenderItem>& items,
+                          bool usar_matriz_normal = true)
 {
     shader.use();
     for (const RenderItem& item : items) {
         shader.set_uniform(u.modelo, item.model);
-        shader.set_uniform(u.color, item.color);
+        // MATRIZ NORMAL, en la CPU y UNA vez por pieza (decisión 8): solo
+        // depende de M, así que calcularla acá cuesta 7 inversas 3x3 por
+        // cuadro; en el vertex shader serían una por VÉRTICE. Se usa la parte
+        // 3x3 de M (glm::mat3(M)): una normal es una DIRECCIÓN y la traslación
+        // no la afecta. Solo si el programa la usa (el terreno no).
+        //   - Rotación pura (el fuselaje, las placas en su pose): G = M, porque
+        //     la inversa de una rotación es su transpuesta.
+        //   - Escalado NO uniforme (los conos: S(r, h, r)): G escala por 1/r y
+        //     1/h, al REVÉS que M, y eso mantiene la normal perpendicular.
+        if (u.normal != -1) {
+            const glm::mat3 m3 = glm::mat3(item.model);
+            const glm::mat3 normal = usar_matriz_normal ? glm::transpose(glm::inverse(m3)) : m3;
+            shader.set_uniform(u.normal, normal);
+        }
+        // Material (P09): kd es el color de antes; ks y ns solo los usa el avión.
+        shader.set_uniform(u.kd, item.material.kd);
+        shader.set_uniform(u.ks, item.material.ks);
+        shader.set_uniform(u.ns, item.material.ns);
         shader.set_uniform(u.morph, item.morph);
         shader.set_uniform(u.escala_uv, item.escala_uv);
         if (item.textura != nullptr) {
@@ -306,20 +350,28 @@ int main()
             // UniformsPieza cambian en cada draw call.
             UniformsPieza u_terreno;
             u_terreno.modelo       = shader_terreno.loc("uModel");
-            u_terreno.color        = shader_terreno.loc("uColor");
+            u_terreno.kd           = shader_terreno.loc("uColor");      // P09: el kd plano (tecla L)
             u_terreno.usar_textura = shader_terreno.loc("uUsarTextura");
             u_terreno.morph        = shader_terreno.loc("uMorph");      // LOD (P07)
             UniformsPieza u_aeronave;
             u_aeronave.modelo       = shader_aeronave.loc("uModel");
-            u_aeronave.color        = shader_aeronave.loc("uColor");
             u_aeronave.usar_textura = shader_aeronave.loc("uUsarTextura");
             u_aeronave.escala_uv    = shader_aeronave.loc("uEscalaUV");
+            // P09 (Parte 3): uniform de tipo STRUCT. Cada campo tiene su propia
+            // ubicación y se busca con el nombre completo, con punto.
+            u_aeronave.kd           = shader_aeronave.loc("uMaterial.kd");
+            u_aeronave.ks           = shader_aeronave.loc("uMaterial.ks");
+            u_aeronave.ns           = shader_aeronave.loc("uMaterial.ns");
+            u_aeronave.normal       = shader_aeronave.loc("uNormalMatrix");
+            // P09 (Parte 3, tecla V): normales como color (se envía una vez por cuadro).
+            const int loc_ver_normales = shader_aeronave.loc("uVerNormales");
             const UniformsEscena ue_terreno  = buscar_uniforms_escena(shader_terreno);
             const UniformsEscena ue_aeronave = buscar_uniforms_escena(shader_aeronave);
             const int loc_tam_tesela = shader_terreno.loc("uTamTesela");
             // Práctico 09: los uniforms de la ESCENA (sol, ojo, niebla) del
             // código común, en cada programa. Se informa por consola cuántos usa
-            // cada uno (en la Parte 2 el avión todavía no usa los del sol).
+            // cada uno (desde la Parte 3 el avión los usa todos menos
+            // uModoSuelo, que es solo del suelo).
             const UniformsIluminacion ul_terreno  = buscar_uniforms_iluminacion(shader_terreno, "terreno");
             const UniformsIluminacion ul_aeronave = buscar_uniforms_iluminacion(shader_aeronave, "aeronave");
 
@@ -505,7 +557,9 @@ int main()
                       << "G=suelo continuado, 1=solo nivel fino, "
                       << "RePag/AvPag=altura sobre el terreno" << std::endl;
             std::cout << "teclas P09: B=luz del suelo (con luz/sin luz/normal constante), "
-                      << "O/P=bajar/subir el sol, H=sol pintado del cubemap" << std::endl;
+                      << "O/P=bajar/subir el sol, H=sol pintado del cubemap, "
+                      << "V=normales del avion como color, X=matriz normal / M, "
+                      << "R=Phong / Blinn-Phong" << std::endl;
             {
                 GLint muestras = 0;
                 glGetIntegerv(GL_SAMPLES, &muestras);
@@ -519,7 +573,8 @@ int main()
             // Contexto para las callbacks (cámara + toggles discretos).
             // ctx es el "tablero de interruptores" del programa: guarda el
             // estado de cada tecla de depuración (pausa, F, L, M, N, U, T, I,
-            // K, G, 1, RePág/AvPág; P09: B, O/P, H) y un puntero a la cámara.
+            // K, G, 1, RePág/AvPág; P09: B, O/P, H, V, X, R) y un puntero a la
+            // cámara.
             // El problema que resuelve: GLFW llama a key_callback y a
             // framebuffer_size_callback con SOLO la ventana y la tecla; son
             // funciones libres y no ven las variables de main. La solución de
@@ -728,6 +783,7 @@ int main()
                 // comparar un sol alto con uno bajo.
                 luz.sol_dir    = sol_con_elevacion(fondo.direccion_sol(), ctx.sol_elevacion);
                 luz.modo_suelo = ctx.modo_suelo;   // B: verificación de la luz del suelo
+                luz.blinn_phong = ctx.blinn_phong ? 1 : 0;   // R: modelo del brillo (P09, Parte 3)
                 //
                 // Borrar la pantalla al empezar el cuadro, en dos pasos:
                 //   glClearColor: solo ELIGE el color de borrado (R, G, B, A en
@@ -767,9 +823,12 @@ int main()
                 // El fondo los recibe por ParametrosFondo (más abajo).
                 enviar_iluminacion(shader_terreno, ul_terreno, luz, ojo_rel);
                 enviar_iluminacion(shader_aeronave, ul_aeronave, luz, ojo_rel);
+                // P09 (Parte 3, tecla V): es solo del avión (la verificación
+                // de las normales del terreno es la tecla B).
+                shader_aeronave.set_uniform(loc_ver_normales, ctx.ver_normales ? 1 : 0);
 
                 // LISTAS DE DIBUJO: cada módulo arma su parte como RenderItem(s)
-                // (malla + modelo + color + textura). El main no sabe cuántas
+                // (malla + modelo + material + textura). El main no sabe cuántas
                 // piezas hay; solo elige CON QUÉ PROGRAMA se dibuja cada lista.
                 std::vector<RenderItem> items_terreno;
                 std::vector<RenderItem> items_avion;
@@ -777,7 +836,8 @@ int main()
                 avion.collect(items_avion);       // 7 items (piezas del avión)
 
                 dibujar_items(shader_terreno, u_terreno, items_terreno);
-                dibujar_items(shader_aeronave, u_aeronave, items_avion);
+                dibujar_items(shader_aeronave, u_aeronave, items_avion,
+                              ctx.matriz_normal);   // X: matriz normal o M (P09)
 
                 // EL FONDO, AL ÚLTIMO (método b): solo se pinta donde la escena
                 // no dibujó nada. Usa la MISMA textura de suelo que la malla, la
@@ -933,6 +993,29 @@ void key_callback(GLFWwindow* window, int key, [[maybe_unused]] int scancode,
         std::cout << "[H] sol: el pintado del cubemap ("
                   << std::round(ctx->sol_elevacion * 10.0f) / 10.0f
                   << " grados de elevacion)" << std::endl;
+    }
+
+    // --- Práctico 09 (Parte 3): verificación de la luz del avión --------------
+    if (key == GLFW_KEY_V) {
+        // Lo primero que pide la guía: ver las normales ANTES de mirar la luz.
+        ctx->ver_normales = !ctx->ver_normales;
+        std::cout << "[V] avion: " << (ctx->ver_normales
+                     ? "NORMALES como color (+X rosado, +Y verde claro, +Z lila)"
+                     : "con luz") << std::endl;
+    }
+    if (key == GLFW_KEY_X) {
+        // Comparar M con la matriz normal. Se nota en la NARIZ y la COLA (un
+        // cono unitario estirado); en el resto de las piezas no cambia nada.
+        ctx->matriz_normal = !ctx->matriz_normal;
+        std::cout << "[X] normales del avion con: " << (ctx->matriz_normal
+                     ? "la MATRIZ NORMAL (M^-1)^T (correcto)"
+                     : "M (ERROR: se nota en la nariz y la cola)") << std::endl;
+    }
+    if (key == GLFW_KEY_R) {
+        ctx->blinn_phong = !ctx->blinn_phong;
+        std::cout << "[R] brillo especular: " << (ctx->blinn_phong
+                     ? "Blinn-Phong (N.H, exponente ns x 4)"
+                     : "Phong (R.V)") << std::endl;
     }
 }
 

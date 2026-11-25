@@ -1,27 +1,27 @@
 // Sin #version: desde el Práctico 09 la agrega la clase Shader a todas las etapas (ver Shader.cpp).
 
 // -----------------------------------------------------------------------------
-// aeronave.fs — fragment shader de las PIEZAS DEL AVIÓN (Práctico 08)
-//
-// Sin textura: el color plano de la pieza (como hasta el Práctico 07).
-// Con textura: color * textura. Qué color manda Aircraft según la apariencia:
-//   - camuflaje (tecla T, la inicial): blanco -> se ve la textura tal cual;
-//   - metal gris (tecla T): el gris de la pieza dividido por el brillo medio
-//     de la chapa -> se conserva el gris y la chapa suma rayones y remaches;
-//   - colores de las piezas (tecla T): sin textura (uUsarTextura = 0);
-//   - imagen de prueba (tecla U): blanco -> se ve la imagen tal cual, para
-//     verificar las coordenadas de textura de cada primitiva.
-// (En el Práctico 09, Parte 3, este color pasa a ser el kd del material.)
+// aeronave.fs — fragment shader de las PIEZAS DEL AVIÓN (Prácticos 08 y 09)
 //
 // Práctico 09 (Parte 1): el programa se arma con
 //   #version + iluminacion.glsl + aeronave.fs
 // La niebla que estaba repetida acá se borró: es la del código común.
+//
+// Práctico 09 (Parte 3): el avión se ILUMINA con la misma función que el suelo,
+// iluminar() del código común, pero con el MATERIAL DE CADA PIEZA (uMaterial).
+// Qué kd manda Aircraft según la apariencia (el color del Práctico 08):
+//   - camuflaje (tecla T, la inicial): blanco -> kd = la textura tal cual;
+//   - metal gris (tecla T): el gris de la pieza dividido por el brillo medio
+//     de la chapa -> se conserva el gris y la chapa suma rayones y remaches;
+//   - colores de las piezas (tecla T): sin textura (uUsarTextura = 0);
+//   - imagen de prueba (tecla U): blanco -> kd = la imagen tal cual.
+// ks y ns dependen de la apariencia (mate, metal, plástico; ver Aircraft.cpp).
 // -----------------------------------------------------------------------------
 
 // ENTRADAS (in): las salidas de aeronave.vs, INTERPOLADAS para este fragmento.
-in vec3  vNormal;      // normal interpolada (sin usar hasta la luz del P09, Parte 3)
+in vec3  vNormalMundo; // P09: normal en MUNDO (con la matriz normal), sin normalizar
 in vec2  vTexCoord;    // coordenadas de textura (ya escaladas por la pieza)
-in vec3  vPosMundo;    // posición en mundo (niebla; desde la Parte 3, también la luz)
+in vec3  vPosMundo;    // posición en mundo (para la luz y la niebla)
 
 // SALIDA (out): el color final de este píxel.
 out vec4 FragColor;
@@ -30,18 +30,57 @@ out vec4 FragColor;
 // UNIDAD 0: del lado de C++, textura->bind(0) antes de dibujar la pieza.
 layout (binding = 0) uniform sampler2D uTextura;   // unidad 0
 
-uniform vec3 uColor;         // color de la pieza (o blanco, o el gris compensado)
-uniform int  uUsarTextura;   // 1 = color * textura, 0 = color plano
+// P09: el MATERIAL de la pieza. Es un uniform de tipo struct (el struct
+// Material está declarado en iluminacion.glsl, que va antes de este archivo).
+// Cada campo es un uniform aparte: la CPU busca su ubicación con el nombre
+// completo, con punto ("uMaterial.kd", "uMaterial.ks", "uMaterial.ns").
+uniform Material uMaterial;
+uniform int  uUsarTextura;   // 1 = kd * textura, 0 = kd plano
 
-// La niebla (uNieblaColor, uNieblaInicio, uNieblaFin y aplicar_niebla) viene de
-// iluminacion.glsl: la misma del terreno y del suelo continuado.
+// P09 (Parte 3, tecla V): 1 = pintar la NORMAL como color, para verificarla
+// antes de mirar la luz (es lo primero que pide la guía: las normales de las
+// primitivas se usan por primera vez en este práctico).
+uniform int  uVerNormales;
+
+// La luz (uSolDir, uSolColor, uAmbiente, uOjo, uBlinnPhong, iluminar) y la
+// niebla (aplicar_niebla) vienen de iluminacion.glsl: las MISMAS del terreno.
 
 void main()
 {
-    vec3 texel = texture(uTextura, vTexCoord).rgb;          // se lee siempre (mipmaps)
-    vec3 color = (uUsarTextura == 1) ? uColor * texel : uColor;   // color sin niebla
-    FragColor = vec4(aplicar_niebla(color, vPosMundo), 1.0);      // código común
+    // La normal llega interpolada y MÁS CORTA que 1 (promedio de vectores
+    // unitarios): hay que normalizarla antes de usarla (N·L supone largo 1).
+    vec3 N = normalize(vNormalMundo);
 
-    // Depuración de normales (Práctico 03; se usará en el Práctico 09):
-    //   FragColor = vec4(normalize(vNormal) * 0.5 + 0.5, 1.0);
+    // VERIFICACIÓN DE LAS NORMALES (tecla V). Cada componente va de [-1, 1] a
+    // [0, 1]: N·0,5 + 0,5. Una cara que mira hacia +X se ve rosada
+    // (1; 0,5; 0,5), hacia +Y verde claro y hacia +Z (ARRIBA en esta escena)
+    // lila. Sin luz ni niebla: es un DATO (una dirección codificada como
+    // color), no un color de la escena. Por eso tampoco se le aplicará la
+    // corrección gamma de la Parte 5.
+    if (uVerNormales == 1) {
+        FragColor = vec4(N * 0.5 + 0.5, 1.0);
+        return;
+    }
+
+    // La textura se lee SIEMPRE (también sin textura) y recién después se
+    // elige: el filtrado con mipmaps necesita las derivadas de las (u, v)
+    // entre fragmentos vecinos, que no están definidas dentro de un if.
+    vec3 texel = texture(uTextura, vTexCoord).rgb;
+
+    // El material de ESTE fragmento: el de la pieza, con la textura
+    // MULTIPLICANDO al kd (decisión 6; la textura aporta el detalle y el kd
+    // tiñe). ks y ns no los toca la textura: el brillo de una pintura o de un
+    // metal es del color de la luz, no del de la superficie.
+    Material m = uMaterial;
+    if (uUsarTextura == 1) {
+        m.kd = uMaterial.kd * texel;
+    }
+
+    // LUZ: la MISMA función que el suelo (código común), con el material de
+    // la pieza. A diferencia del suelo, acá ks > 0: aparece el BRILLO
+    // especular, la única parte de la luz que cambia al mover la cámara.
+    vec3 color = iluminar(vPosMundo, N, m);
+
+    // NIEBLA, después de la luz (la niebla no se ilumina).
+    FragColor = vec4(aplicar_niebla(color, vPosMundo), 1.0);
 }

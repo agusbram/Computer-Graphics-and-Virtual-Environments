@@ -61,6 +61,11 @@ que se desarrollan los prácticos del proyecto integrador
     (`kd` = textura, `ks` = 0). Normales del terreno corregidas: diferencias
     centrales también en el borde (grilla de alturas con margen) y
     **geomorphing de la normal**. Teclas `B`, `O`/`P`, `H`.
+  - *Parte 3* ✔: la **aeronave iluminada**. `Material {kd, ks, ns}` en el
+    `RenderItem` en lugar del color (la textura multiplica a `kd`; brillo según
+    la apariencia: mate, metal, plástico). **Matriz normal** calculada en la CPU
+    por pieza. La nariz y la cola salen de un cono unitario estirado, y el ápice
+    del cono tiene un vértice por gajo. Teclas `V`, `X`, `R` (Blinn-Phong).
 
 ---
 
@@ -93,7 +98,9 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
   `RePág`/`AvPág` = altura sobre el terreno (para medir la banda).
 - **Teclado (Práctico 09)**: `B` = luz del suelo (con luz / sin luz / normal
   constante); `O`/`P` = bajar/subir el sol (5° por pulsación); `H` = volver al
-  sol pintado del cubemap.
+  sol pintado del cubemap; `V` = normales del avión como color; `X` = normales
+  del avión con `M` en lugar de la matriz normal (el error); `R` = Phong ↔
+  Blinn-Phong.
 - **Mouse**: botón izquierdo arrastrado = orbitar (yaw/pitch); botón derecho
   arrastrado (vertical) = acercar/alejar.
 - La consola muestra versión de driver/vendor/GLSL al arrancar.
@@ -109,7 +116,7 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
 │   ├── shaders/            # fuentes GLSL externos (SIN #version: la agrega Shader, P09):
 │   │                       #   iluminacion.glsl (código COMÚN: luz + niebla)     — P09
 │   │                       #   terreno.*  (morph del LOD + pasto + luz + niebla) — P08/P09
-│   │                       #   aeronave.* (color, chapa o imagen de prueba)       — P08
+│   │                       #   aeronave.* (material + chapa/camuflaje + luz + niebla) — P08/P09
 │   │                       #   fondo.*    (cielo cubemap/degradé + suelo continuado iluminado) — P08/P09
 │   │                       #   solid.*    (OBSOLETOS: la versión del P07, ya no se cargan)
 │   └── textures/           # P08: suelo/ (pasto), cielo/ (cubemap), avion/ (chapa CC0),
@@ -124,9 +131,10 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
 │       ├── Shader.h/.cpp       # dueño del programa linkeado + uniforms (DSA); P09: varios archivos por etapa
 │       ├── ShaderSource.h      # fuente de un programa: lista de archivos por etapa (P09)
 │       ├── Iluminacion.h/.cpp  # sol + niebla de la escena: un solo lugar en la CPU (P09)
-│       ├── Primitives.h/.cpp   # cube(), cylinder(), cone() y sphere() (opcional)
-│       ├── Aircraft.h/.cpp     # modelo de la aeronave: piezas + locales + pose
-│       ├── RenderItem.h        # item de dibujo {mesh, model, color, morph, textura, escala_uv} (P04; LOD P07; textura P08)
+│       ├── Primitives.h/.cpp   # cube(), cylinder(), cone() (ápice por gajo, P09) y sphere() (opcional)
+│       ├── Aircraft.h/.cpp     # modelo de la aeronave: piezas + locales + pose (+ material por apariencia, P09)
+│       ├── Material.h          # {kd, ks, ns}: coeficientes de Phong de una pieza (P09)
+│       ├── RenderItem.h        # item de dibujo {mesh, model, material, morph, textura, escala_uv} (P04; LOD P07; textura P08; material P09)
 │       ├── Texture.h/.cpp      # dueño único de una textura (2D / cubemap / 1D, DSA, mipmaps) (P08)
 │       ├── Skybox.h/.cpp       # fondo: cubo + cubemap + degradé + suelo continuado (P08)
 │       ├── CameraData.h        # par de matrices {view, projection} (Práctico 05)
@@ -140,7 +148,7 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
 ├── tests/
 │   ├── main_test_rm.cpp        # test standalone del ResourceManager
 │   ├── main_test_primitives.cpp# verificación de winding por producto vectorial
-│   └── main_test_normales.cpp  # normales del terreno: borde x 2, hacia arriba (P09)
+│   └── main_test_normales.cpp  # normales: borde x 2 del terreno, ápice del cono, matriz normal (P09)
 ├── third_party/
 │   ├── glad/               # cargador de funciones OpenGL
 │   ├── FastNoiseLite/      # ruido procedural para el heightmap (Práctico 07)
@@ -255,15 +263,20 @@ g++ -std=c++17 -Wall -Wextra -I./src src/core/Primitives.cpp \
 
 ### Test de las normales del terreno (Práctico 09)
 
-Verificación por cálculo de `generar_malla_terreno` (sin OpenGL): en un plano
-inclinado la normal del **borde** tiene que ser igual a la del interior
-(corrección del borde × 2), y en un relieve todas las normales tienen que ser
-unitarias y apuntar hacia arriba (`z > 0`). Con la fórmula vieja el test falla
-(error 0,24 en el borde).
+Verificación por cálculo de las normales (sin OpenGL):
+- `generar_malla_terreno`: en un plano inclinado la normal del **borde** tiene
+  que ser igual a la del interior (corrección del borde × 2), y en un relieve
+  todas las normales tienen que ser unitarias y apuntar hacia arriba (`z > 0`).
+  Con la fórmula vieja el test falla (error 0,24 en el borde).
+- El **cono** (Parte 3): todas las normales, también las del ápice, son las del
+  lateral. Con el ápice único del P03 el test falla.
+- La **matriz normal** (Parte 3): en el cono unitario estirado de la nariz, la
+  normal con `G = (M⁻¹)ᵀ` es perpendicular a la superficie (error 0°); con `M`
+  se equivoca 41,5°.
 
 ```bash
 g++ -std=c++17 -Wall -Wextra -I./src -I./third_party/FastNoiseLite \
-    tests/main_test_normales.cpp -o build/test_normales && ./build/test_normales
+    src/core/Primitives.cpp tests/main_test_normales.cpp -o build/test_normales && ./build/test_normales
 ```
 
 ## Armado de la aeronave (Práctico 04)
@@ -282,7 +295,9 @@ compuesta por varias primitivas y encapsulada en el módulo `Aircraft`.
 - Despiece: nariz (cono), fuselaje (cilindro), cola (cono), ala izquierda y
   derecha (placas), estabilizador horizontal y deriva (placas): **7 piezas con
   4 mallas distintas** (las cuatro placas comparten la malla del cubo; el ala
-  derecha es la misma malla trasladada, sin escalado negativo).
+  derecha es la misma malla trasladada, sin escalado negativo). *(Desde el P09,
+  Parte 3, son 3 mallas: la nariz y la cola comparten un cono unitario estirado
+  con `S(r, h, r)`, para que se vea el error de transformar la normal con `M`.)*
 - Pose: `Mpose = T(pos) · R(ángulos) · T(−ref)`, con el punto de referencia a
   **0.438·Lf** desde la nariz (posición de la imagen de la guía); cada pieza
   se dibuja con `Mpose · Mlocal`.
@@ -436,9 +451,14 @@ Se hace **parte por parte**. Hecho hasta ahora:
 | **Parte 2:** `terreno.vs/.fs`, `fondo.fs` | La malla se ilumina con la normal en mundo (`vNormalMundo`; sin matriz normal: el modelo del terreno es solo una traslación). El suelo continuado, con la normal del plano (0, 0, 1). |
 | **Parte 2:** `Terrain`, `Vertex`, `Mesh` | Grilla de alturas con **margen** de 2 nodos: diferencias centrales en todos los vértices. Atributo nuevo `normal_gruesa` (location 4): `terreno.vs` mezcla la normal con el **mismo α** del morph. En `generar_malla_terreno`, borde × 2. |
 | **Parte 2:** `main.cpp`, `Iluminacion` | Sol con la orientación del pintado y elevación elegida (`sol_con_elevacion`); teclas `B`, `O`/`P`, `H`. |
+| **Parte 3:** `Material.h` (nuevo), `RenderItem` | `Material {kd, ks, ns}` en lugar del color. En `aeronave.fs` es un uniform de tipo struct (`uMaterial.kd`, ...). |
+| **Parte 3:** `aeronave.vs/.fs`, `main.cpp` | Normal en mundo con la **matriz normal** `(M⁻¹)ᵀ`, calculada en la CPU por pieza (`set_uniform(mat3)`). Luz con `iluminar()`; `kd` × textura. Teclas `V`, `X`, `R`. |
+| **Parte 3:** `Aircraft`, `Primitives` | Brillo (`ks`, `ns`) por apariencia. Nariz y cola: **un cono unitario** estirado con `S(r, h, r)` (3 mallas). Ápice del cono: **un vértice por gajo**. |
+| **Parte 3:** `iluminacion.glsl`, `Iluminacion` | Blinn-Phong como alternativa (`uBlinnPhong`): `(N·H)^(4·ns)`. |
 
 - **Parte 1 = reorganización:** la imagen sale igual que en el P08 (verificado con capturas). La niebla sigue siendo lineal hasta la Parte 4.
 - **Parte 2 = el terreno iluminado:** verificado con los tres modos de `B` desde la misma cámara, el sol bajo y alto, el brillo igual a los dos lados del borde malla/suelo continuado y la normal como color en el borde de los anillos (con capturas en `docs-p09/img/`).
+- **Parte 3 = el avión iluminado:** verificado con las normales como color (`V`), la comparación `M` / matriz normal (`X`: cambian solo la nariz y la cola), los reflejos de las tres apariencias, Phong contra Blinn-Phong (`R`) y el avión alabeado.
 - **Arreglo:** un shader que no compila ya no hace caer el programa (se lanza una excepción en vez de cerrar la ventana antes de destruir los `Shader`).
 
 Ver [`Practico09-Decisiones.md`](Practico09-Decisiones.md) y [`Practico09-Consultas.md`](Practico09-Consultas.md).
@@ -448,9 +468,10 @@ Ver [`Practico09-Decisiones.md`](Practico09-Decisiones.md) y [`Practico09-Consul
 - [`Arquitectura-Proyecto.md`](Arquitectura-Proyecto.md) — arquitectura en capas
   del proyecto (aplicación / sistemas / datos), destino del simulador.
 - [`Practico09-Decisiones.md`](Practico09-Decisiones.md) — iluminación y niebla:
-  las 15 decisiones de diseño tomadas antes de implementar y cada parte hecha
+  las 17 decisiones de diseño (15 antes de implementar y 2 al empezar la Parte 3) y cada parte hecha
   (Parte 1: código GLSL común, `#version` y `#line`, struct `Iluminacion`;
-  Parte 2: el terreno iluminado, material del suelo, normales del clipmap).
+  Parte 2: el terreno iluminado, material del suelo, normales del clipmap;
+  Parte 3: el avión iluminado, material, matriz normal, ápice del cono).
 - [`Practico09-Consultas.md`](Practico09-Consultas.md) — FAQ del P09.
 - [`Practico08-Decisiones.md`](Practico08-Decisiones.md) — texturas y cielo:
   `ImageData`/`load_image` (flip, RGBA, `unload_image`), módulo `Texture` (4 etapas

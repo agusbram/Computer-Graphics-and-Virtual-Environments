@@ -59,7 +59,7 @@
 
 #pragma once
 
-#include <glm/glm.hpp>  // glm::mat4, vec3, vec2: tipos de los uniforms (set_uniform)
+#include <glm/glm.hpp>  // glm::mat4, mat3, vec3, vec2: tipos de los uniforms (set_uniform)
 #include <string>       // std::string: nombres de los uniforms
 
 #include "core/ShaderSource.h"   // ShaderSource: el fuente (P09: lista de archivos por etapa)
@@ -98,6 +98,10 @@ public:
     // continuado) e int (banderas on/off y modos; en GLSL `uniform int`).
     void set_uniform(int ubicacion, const glm::vec2& v) const;
     void set_uniform(int ubicacion, int valor) const;
+    // Práctico 09 (Parte 3): mat3, para la MATRIZ NORMAL de cada pieza
+    // (uNormalMatrix): se calcula en la CPU y viaja como mat3 porque una
+    // normal es una dirección y la traslación (4.ª columna) no la afecta.
+    void set_uniform(int ubicacion, const glm::mat3& m) const;
 
     // Setters por nombre (legibles; buscan la ubicacion en cada llamado).
     void set_uniform(const std::string& nombre, const glm::mat4& m) const;

@@ -24,9 +24,9 @@
 //   4. BÚSQUEDA SIN AVISO: un programa puede no usar alguno de estos uniforms
 //      (el compilador de GLSL elimina los que no se usan y su ubicación es -1).
 //      Por ejemplo, en la Parte 1 nadie llamaba todavía a iluminar() y los del
-//      sol no existían en ningún programa; en la Parte 2 el avión todavía no
-//      se ilumina (es la Parte 3) y no los tiene. glProgramUniform* con -1 no
-//      hace nada.
+//      sol no existían en ningún programa; desde la Parte 2 el suelo (ks = 0)
+//      no usa uOjo ni uBlinnPhong, porque el compilador elimina la especular
+//      que multiplica a cero. glProgramUniform* con -1 no hace nada.
 //      Para no perder de vista un nombre mal escrito, al buscarlos se informa
 //      por consola cuántos usa cada programa y cuáles no.
 //
@@ -69,6 +69,12 @@ struct Iluminacion {
     // terreno y el suelo continuado del fondo) y los dos tienen que cambiar
     // juntos; así viaja por el mismo camino que el sol y la niebla.
     int       modo_suelo {0};
+
+    // --- Modelo del brillo especular (Parte 3, tecla R) ---
+    // 0 = Phong (vector reflejado R), 1 = Blinn-Phong (vector medio H, con el
+    // exponente x 4). Es de la ESCENA y no del avión: el modelo es UNO para
+    // toda la escena (en el suelo no se nota porque su ks = 0).
+    int       blinn_phong {0};
 };
 
 // Ubicaciones de los uniforms de iluminacion.glsl en UN programa. -1 = el
@@ -77,11 +83,12 @@ struct UniformsIluminacion {
     int sol_dir = -1, sol_color = -1, ambiente = -1, ojo = -1;
     int niebla_color = -1, niebla_inicio = -1, niebla_fin = -1;
     int modo_suelo = -1;   // P09, Parte 2 (tecla B)
+    int blinn_phong = -1;  // P09, Parte 3 (tecla R)
 };
 
 // Busca (una vez) las ubicaciones en el programa e informa por consola cuántas
-// usa: "[luz] aeronave: usa 4 de 8 (no usa: uSolDir, ...)". `nombre` es solo
-// para ese informe.
+// usa: "[luz] fondo: usa 7 de 9 (no usa: uOjo, ...)". `nombre` es solo para
+// ese informe.
 UniformsIluminacion buscar_uniforms_iluminacion(const Shader& programa,
                                                 const std::string& nombre);
 

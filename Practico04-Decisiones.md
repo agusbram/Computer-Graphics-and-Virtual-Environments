@@ -60,6 +60,8 @@ a los generadores y carga la malla externa); `update()`, `collect()` y el
 
 ### Despiece (S-211, 7 piezas, 4 mallas)
 
+> **Cambio del Práctico 09 (Parte 3, decisión 17):** la nariz y la cola salen ahora de **un mismo cono unitario** (radio 1, alto 1), estirado en su matriz local con `S(0,09; 0,20; 0,09)` y `S(0,09; 0,30; 0,09)`. La forma no cambia y quedan **3 mallas**. Se hizo para que la diferencia entre transformar la normal con `M` o con la matriz normal se vea (ver `Practico09-Decisiones.md`, Parte 3).
+
 | Pieza | Primitiva | Medidas | Matriz local (escrita; se aplica primero la de más a la derecha) |
 |---|---|---|---|
 | nariz | `cone` | r=0.09, h=0.20 | `T(0.10,0,0) · Rz(+90°)` |

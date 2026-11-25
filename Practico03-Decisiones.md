@@ -83,6 +83,13 @@ bucles. Cambiar gajos = cambiar un parámetro, y la malla se regenera sola.
   filminas: no comparte con el lateral porque la normal difiere). Queda
   documentado: estrictamente la normal no está definida en el ápice; se elige
   la axial porque da mejor sombreado después.
+  > **Cambiado en el Práctico 09 (Parte 3, decisión 16):** con luz, la normal
+  > axial del ápice **no** da mejor sombreado. Cada triángulo del abanico
+  > interpola entre la normal lateral y la axial, y el cono se ilumina como una
+  > ojiva (~33° de desvío a media altura con 1 anillo). Ahora el ápice es **un
+  > vértice por gajo**, con la normal lateral del medio del gajo (el cono de 20
+  > gajos pasa de 22 a 41 vértices). La coordenada de textura sigue siendo
+  > (0,5; 1). Ver `Practico09-Decisiones.md`, Parte 3.
 - Los anillos intermedios van achicando el radio hacia el ápice; la última
   banda es un abanico de triángulos con el vértice del ápice.
 

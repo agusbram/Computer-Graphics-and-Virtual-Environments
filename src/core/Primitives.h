@@ -66,7 +66,10 @@ MeshData cylinder(float radio, float largo,
 //              de la base y el apice).
 // La normal lateral esta inclinada por el semiangulo:
 //   (cos(semi)*cos, sin(semi), cos(semi)*sen)
-// El apice es UN solo vertice con normal axial (0, 1, 0).
+// El apice son N vertices en el mismo punto, UNO POR GAJO, cada uno con la
+// normal lateral del medio de su gajo (Practico 09, Parte 3: con un solo
+// vertice de normal axial, la luz hacia ver el cono como una ojiva).
+// Vertices: anillos*(N+1) + N.
 MeshData cone(float radio, float conicidad,
               unsigned gajos, unsigned anillos = 1U);
 
@@ -79,8 +82,9 @@ MeshData triangle(void);
 //   radio  : radio de la esfera (>= 0)
 //   gajos  : discretizacion angular alrededor del eje Y (>= 3)
 //   anillos: bandas de latitud entre los polos (default 8)
-// Los polos son UN solo vertice cada uno, con normal axial (0, ±1, 0) — el
-// mismo criterio del apice del cono. La normal de los anillos es radial:
+// Los polos son UN solo vertice cada uno, con normal axial (0, ±1, 0): en el
+// polo de una esfera la normal SI esta definida (a diferencia del apice del
+// cono, que desde el P09 lleva un vertice por gajo). La normal de los anillos es radial:
 // (cos(lat)*cos(lon), sen(lat), cos(lat)*sen(lon)).
 MeshData sphere(float radio, unsigned gajos, unsigned anillos = 8U);
 

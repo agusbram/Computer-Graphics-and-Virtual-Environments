@@ -1,6 +1,7 @@
 // -----------------------------------------------------------------------------
 // iluminacion.glsl — código GLSL COMÚN a los fragment shaders de la escena
-// (Práctico 09: Parte 1, el archivo común; Parte 2, la luz del suelo)
+// (Práctico 09: Parte 1, el archivo común; Parte 2, la luz del suelo; Parte 3,
+// el avión y Blinn-Phong)
 //
 // El terreno, el avión y el fondo (que pinta el suelo continuado) tienen que
 // usar EL MISMO sol y LA MISMA niebla: si uno usara otro modelo u otros
@@ -41,6 +42,7 @@ uniform vec3  uSolDir;        // dirección HACIA el sol (de la superficie a la 
 uniform vec3  uSolColor;      // color e intensidad del sol
 uniform vec3  uAmbiente;      // luz ambiente (la que llega a todos lados, aun en sombra)
 uniform vec3  uOjo;           // posición de la cámara, en mundo (relativa al avión: origen flotante)
+uniform int   uBlinnPhong;    // P09, Parte 3 (tecla R): 0 = Phong (vector R), 1 = Blinn-Phong (vector H)
 
 // Niebla. Parte 1: la niebla LINEAL del Práctico 08, sin cambios (solo se mudó
 // a este archivo). En la Parte 4 pasa a la exponencial, con una visibilidad V.
@@ -51,7 +53,10 @@ uniform float uNieblaFin;     // distancia donde es TOTAL; <= 0 -> niebla apagad
 // --- Material (Partes 2 y 3) ----------------------------------------------------
 // Coeficientes del modelo de Phong de UN objeto. Es un dato del OBJETO, no de
 // la escena: el suelo lo arma con su textura (iluminar_suelo, más abajo) y el
-// avión lo recibirá por pieza (Parte 3).
+// avión lo recibe por pieza (Parte 3: `uniform Material uMaterial;` en
+// aeronave.fs; del lado de C++, el struct Material de Material.h, con los
+// mismos tres campos). Como este archivo va ANTES del código propio, el struct
+// ya está definido cuando aeronave.fs declara ese uniform.
 struct Material
 {
     vec3  kd;    // coeficiente difuso (y ambiente: ka = kd, lo habitual)
@@ -77,6 +82,19 @@ struct Material
 //   especular: uSolColor·ks·max(R·V, 0)^ns. El BRILLO: el reflejo del sol
 //              como en un espejo (R) visto desde el ojo (V). Es la única que
 //              cambia al mover la cámara. En el suelo ks = 0: no aparece.
+//
+// PHONG o BLINN-PHONG (Parte 3, decisión 5; tecla R). Solo cambia la
+// especular, es decir, CÓMO se mide "qué tan cerca está el ojo del reflejo":
+//   Phong      : R = reflect(-L, N), el rayo reflejado; brillo = (R·V)^ns.
+//   Blinn-Phong: H = normalize(L + V), el vector a MITAD de camino entre la
+//                luz y el ojo; brillo = (N·H)^ns'. Si el ojo está justo en
+//                el reflejo, H coincide con N.
+// El ángulo entre N y H es más o menos la MITAD del ángulo entre R y V, así
+// que con el mismo exponente el brillo de Blinn-Phong sale bastante más
+// ANCHO. Para comparar reflejos de tamaño parecido se usa ns' = 4·ns (la
+// regla práctica habitual). Blinn-Phong es el modelo de la tubería fija de
+// OpenGL: con luz direccional y ojo lejano, H es casi constante y era más
+// barato; además no se corta de golpe cuando R·V pasa por 0 a ángulos rasantes.
 vec3 iluminar(vec3 P, vec3 N, Material m)
 {
     vec3  L     = uSolDir;                  // direccional: la MISMA en todos los puntos
@@ -87,8 +105,15 @@ vec3 iluminar(vec3 P, vec3 N, Material m)
     vec3 difusa    = uSolColor * m.kd * NdotL;
     vec3 especular = vec3(0.0);
     if (NdotL > 0.0) {                      // sin brillo en la cara que no recibe luz
-        vec3 R = reflect(-L, N);            // reflect espera la dirección QUE LLEGA: -L
-        especular = uSolColor * m.ks * pow(max(dot(R, V), 0.0), m.ns);
+        float brillo;                       // en [0, 1]: 1 = el ojo justo en el reflejo
+        if (uBlinnPhong == 1) {
+            vec3 H = normalize(L + V);      // vector medio (halfway) entre la luz y el ojo
+            brillo = pow(max(dot(N, H), 0.0), 4.0 * m.ns);
+        } else {
+            vec3 R = reflect(-L, N);        // reflect espera la dirección QUE LLEGA: -L
+            brillo = pow(max(dot(R, V), 0.0), m.ns);
+        }
+        especular = uSolColor * m.ks * brillo;
     }
     return ambiente + difusa + especular;
 }
