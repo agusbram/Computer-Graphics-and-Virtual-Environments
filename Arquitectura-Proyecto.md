@@ -81,7 +81,7 @@ un `main.cpp` gigante.
 | `FlightData` | pitch, roll, hdg (rumbo), etc. |
 | `CircuitState` | waypoints (circuito / checkpoints) |
 | `CameraData` | datos de la cámara |
-| `Iluminacion` (P09) | sol (dirección, color), luz ambiente, niebla, modo de verificación del suelo (tecla B) y Phong/Blinn-Phong (tecla R): un solo lugar, lo leen los tres programas |
+| `Iluminacion` (P09) | sol (dirección, color), luz ambiente, niebla (color y visibilidad), modo de verificación del suelo (tecla B) y Phong/Blinn-Phong (tecla R): un solo lugar, lo leen los tres programas |
 | `Material` (P09) | coeficientes de Phong de una pieza `{kd, ks, ns}`: viaja en el `RenderItem` en lugar del color |
 | `ShaderSource` (P09) | fuente de un programa: lista de archivos por etapa (lo llena `ResourceManager`, lo compila `Shader`) |
 
@@ -143,10 +143,124 @@ La arquitectura es el **destino**; el código actual ya da pasos hacia ella:
   Ver `Practico08-Decisiones.md`.
 - **Iluminación y niebla** (Práctico 09, en curso): código GLSL común ✔,
   terreno iluminado (Phong) ✔, avión iluminado (material en el `RenderItem`,
-  matriz normal calculada al dibujar) ✔; faltan la niebla exponencial y la
-  gamma. Ver `Practico09-Decisiones.md`.
+  matriz normal calculada al dibujar) ✔, niebla exponencial (terreno, avión y
+  cielo) ✔; falta la gamma. Ver `Practico09-Decisiones.md`.
 - **HUD**: el módulo `HUD`.
 - **Circuito / maniobras**: `CircuitState` + `GameLogic`.
+- **`Renderer`** (pendiente, para **después** del Práctico 09): sacar el dibujo
+  de `main`. Ver la sección siguiente, "Estado actual frente a la propuesta".
 
 No conviene crear los módulos vacíos antes de tiempo: cada capa llega con su
 práctico.
+
+---
+
+## Estado actual frente a la propuesta (revisión del 25-nov, Práctico 09)
+
+Revisión de **todo el proyecto** hasta la Parte 4 del Práctico 09, contra la
+filmina de arquitectura del 11 de septiembre (`Clase 11 septiembre.md`). Se
+revisó **qué incluye cada archivo** (`#include`) y **qué módulos llaman a
+OpenGL**.
+
+**Resumen.** La base sigue la propuesta: los datos compartidos, la
+infraestructura y los sistemas están separados y **ningún sistema depende de
+otro**. Lo que falta es la capa del **`Renderer`**: hoy **dibuja `main`**, y la
+filmina dice que *"main orquesta todo, gestiona los módulos y ejecuta el
+programa. **No dibuja ni crea modelos**"*.
+
+> **Decisión (25-nov):** se deja anotado para hacerlo **más adelante**. Primero
+> se termina el Práctico 09 (Parte 5, corrección gamma, y los opcionales: halo
+> del sol → día/noche → curvatura de la Tierra).
+
+### Lo que cumple
+
+| Regla de la filmina | Cómo está en el código | |
+|---|---|---|
+| Sistemas **sin dependencias cruzadas** | `Aircraft`, `Terrain`, `CameraSystem`, `InputHandler` y `Skybox` no se incluyen entre sí. Se comunican por **datos**: `InputHandler` → `CameraCommand` → `CameraSystem`; el FDM → `FlightData` → `Aircraft`. | ✔ |
+| `ResourceManager`: carga y cachea, **nada gráfico directo** | 0 llamadas a OpenGL. | ✔ |
+| `Shader`: compila, linkea y setea uniforms; **no decide qué se dibuja** | P09: varios archivos por etapa y `#version`. No sabe qué objeto dibuja. | ✔ |
+| `Mesh`: VAO/VBO/EBO; **no sabe qué representa** | Recibe un `MeshData` y lo sube. | ✔ |
+| `primitives`: genera geometría; **no sabe dónde va** | Solo depende de `MeshData`; 0 llamadas a OpenGL. | ✔ |
+| `Aircraft` / `Scene`: qué modelos hay y dónde; **no emite draw calls** | `Aircraft` y `Terrain` solo llenan listas de `RenderItem` con `collect()`; 0 llamadas a OpenGL. | ✔ (salvo `Skybox`, ver abajo) |
+| El modelo **encapsulado en una clase** (para el día del `.obj`) | `Aircraft`: cambiar las primitivas por un `.obj` solo toca `init()`. | ✔ |
+| Estructuras compartidas **solo datos** | `CameraData`, `CameraCommand`, `Material`, `MeshData`, `ShaderSource`, `RenderItem`. | ✔ (salvo `Iluminacion` y `FlightData`, ver abajo) |
+| HUD, GameLogic, CircuitState | Todavía no existen, a propósito: "cada capa llega con su práctico". | — |
+
+### Mapa de dependencias (quién incluye a quién, 25-nov)
+
+```
+Datos (no incluyen nada del proyecto):
+  CameraData · CameraCommand · Material · MeshData · ShaderSource · FlightData(*)
+  Iluminacion(*) → Shader          ← no es "solo datos" (punto 3)
+
+Infraestructura:
+  Mesh → MeshData        Primitives → MeshData
+  Shader → ShaderSource  ResourceManager → ShaderSource
+  Texture.cpp → ResourceManager    ← solo por ImageData (punto 4)
+
+Sistemas (ninguno incluye a otro sistema):
+  Aircraft     → FlightData, Mesh, RenderItem, Texture
+  Terrain      → Mesh, MeshData, RenderItem, Texture
+  CameraSystem → CameraData, CameraCommand
+  InputHandler → CameraCommand
+  Skybox       → Iluminacion, Mesh, ResourceManager, Shader, Texture
+
+Aplicación:
+  main.cpp → todos                  ← y además DIBUJA (punto 1)
+```
+
+### Dónde no la sigue
+
+**1. No hay `Renderer`: dibuja `main`.** Es lo más importante.
+
+- `main.cpp` tiene **1098 líneas**; la función `main()` sola, unas **630**. Es
+  el "`main.cpp` gigante" que este apunte quería evitar desde el principio.
+- En `main` están las ubicaciones de los uniforms de cada pieza
+  (`UniformsPieza`, `UniformsEscena`), `dibujar_items()` con el
+  `glDrawElements`, el `glClear` y el estado de la GPU (prueba de profundidad,
+  recorte de caras traseras, MSAA).
+- Ya estaba anotado arriba ("el loop de dibujo vive todavía en `main`, así lo
+  pide el Práctico 04"), pero desde entonces `main` creció con cada práctico.
+
+**2. El `Skybox` se dibuja solo.** `Skybox::draw()` hace su propio
+`glDrawElements` y cambia el estado de la GPU (`glDepthFunc(GL_LEQUAL)`,
+`glDisable(GL_CULL_FACE)`). Es parte de **Scene**, que según la tabla "NO
+emite draw calls". Fue una decisión del P08 ("es dueño de su cubo, sus
+texturas y su shader"). Según la filmina, debería **entregar** lo que hay que
+dibujar y que lo dibuje el `Renderer`.
+
+**3. `Iluminacion` no es "solo datos".** Está en la tabla de estructuras
+compartidas, pero `Iluminacion.h` incluye `Shader.h` y declara
+`buscar_uniforms_iluminacion()` y `enviar_iluminacion()`: buscar y enviar
+uniforms es trabajo del `Renderer`. También tiene `sol_con_elevacion()`, una
+cuenta.
+
+**4. Detalles menores.**
+
+- `FlightData` incluye `dlfdm/defines.h` y trae la conversión `to_world()`
+  (NED → escena): un dato que conoce al FDM.
+- `ImageData` vive en `ResourceManager.h`, así que `Texture.cpp` incluye al
+  `ResourceManager` solo por ese struct. `ShaderSource` y `MeshData` ya tienen
+  su propio encabezado.
+- Las teclas de depuración y de opciones (B, X, R, J, N, K, L, RePág/AvPág…)
+  están en el `key_callback` de `main` (unas 130 líneas), con su estado en
+  `AppContext`. El módulo de teclado de la filmina es el `InputHandler`, que
+  hoy solo maneja los mandos de vuelo y la cámara.
+
+### Plan para hacerlo (a futuro)
+
+De lo más barato y seguro a lo más caro:
+
+| Paso | Qué se hace | Riesgo |
+|---|---|---|
+| 1 | **`Iluminacion` solo datos**: el struct queda en `Iluminacion.h`, sin `Shader.h`. `buscar_uniforms_iluminacion` / `enviar_iluminacion` pasan al `Renderer` (o a un archivo propio mientras no exista). | Bajo |
+| 2 | **`ImageData.h` propio**, como `MeshData.h` y `ShaderSource.h`: `Texture` deja de incluir al `ResourceManager`. | Bajo |
+| 3 | **`FlightData` sin `dlfdm`**: `to_world()` pasa al lado del FDM (un adaptador donde se usa el solver). | Bajo |
+| 4 | **Módulo `Renderer`**: recibe las listas de `RenderItem` (malla + matriz de modelo + material + textura), la **cámara** y la **luz**, y dibuja. Se lleva `UniformsPieza`, `UniformsEscena`, `dibujar_items()`, el envío de la iluminación, el `glClear` y el estado de la GPU. `main` queda en: inicializar, correr el game loop, pedir los `collect()` y pasarle las listas al `Renderer`. Es exactamente lo que dice la filmina: el `Renderer` "**no sabe** cómo se construye el avión ni el cielo: sólo recibe la malla a dibujar + la matriz modelo + la cámara". | Medio: toca **todo** el dibujo |
+| 5 | **El fondo lo dibuja el `Renderer`**: el `Skybox` entrega su cubo, sus texturas y sus parámetros (`ParametrosFondo`), y el `Renderer` tiene un camino aparte para el fondo, porque necesita su propio estado de profundidad y de caras. | Medio |
+| 6 | **Teclas al `InputHandler`**: las de opciones pasan a ser comandos (como `CameraCommand`), y `main` solo los aplica. | Bajo, pero largo |
+
+**Cómo verificar después de cada paso:** la misma escena tiene que verse
+igual. Probar los tres programas (terreno, avión, fondo) y todas las teclas de
+verificación del P09: B, X, R, J, N, K y L. Los tests (`test_rm`,
+`test_primitives`, `test_normales`) tienen que seguir pasando.

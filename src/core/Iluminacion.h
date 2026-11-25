@@ -56,11 +56,13 @@ struct Iluminacion {
     glm::vec3 ambiente {0.3f};              // luz ambiente (0,3 + 0,7 = 1: sin zonas quemadas)
 
     // --- Niebla ---
-    // Parte 1: sigue siendo la niebla LINEAL del Práctico 08, ahora en el código
-    // común. En la Parte 4 pasa a la exponencial con una visibilidad V.
-    glm::vec3 niebla_color {0.5f};          // color del horizonte del cielo (lo calcula el Skybox)
-    float     niebla_inicio {300.0f};       // distancia donde EMPIEZA (u de escena; 300 u = 3 km)
-    float     niebla_fin {1800.0f};         // distancia donde es TOTAL; <= 0 -> sin niebla (tecla N)
+    // Parte 4: EXPONENCIAL, f = 1 - e^(-d/V) (aplicar_niebla, código común). Un
+    // solo parámetro, la VISIBILIDAD V. (Hasta la Parte 3 era la lineal del
+    // Práctico 08, con un inicio y un fin.) main elige V (kVisibilidad) y
+    // la pone en 0 con la tecla N.
+    glm::vec3 niebla_color {0.5f};          // color del horizonte del cielo (lo calcula el Skybox; J: gris)
+    float     visibilidad {600.0f};         // V, u de escena (600 u = 6 km): a V la niebla es del 63 %;
+                                            // <= 0 -> sin niebla (tecla N)
 
     // --- Verificación de la luz del suelo (Parte 2, tecla B) ---
     // 0 = con luz y las normales del terreno; 1 = sin luz (color = kd, como el
@@ -81,13 +83,13 @@ struct Iluminacion {
 // programa no lo usa (o todavía no se buscó).
 struct UniformsIluminacion {
     int sol_dir = -1, sol_color = -1, ambiente = -1, ojo = -1;
-    int niebla_color = -1, niebla_inicio = -1, niebla_fin = -1;
+    int niebla_color = -1, visibilidad = -1;   // P09, Parte 4: uVisibilidad reemplaza a inicio/fin
     int modo_suelo = -1;   // P09, Parte 2 (tecla B)
     int blinn_phong = -1;  // P09, Parte 3 (tecla R)
 };
 
 // Busca (una vez) las ubicaciones en el programa e informa por consola cuántas
-// usa: "[luz] fondo: usa 7 de 9 (no usa: uOjo, ...)". `nombre` es solo para
+// usa: "[luz] fondo: usa 6 de 8 (no usa: uOjo, ...)". `nombre` es solo para
 // ese informe.
 UniformsIluminacion buscar_uniforms_iluminacion(const Shader& programa,
                                                 const std::string& nombre);

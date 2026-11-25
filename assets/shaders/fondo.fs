@@ -1,7 +1,7 @@
 // Sin #version: desde el Práctico 09 la agrega la clase Shader a todas las etapas (ver Shader.cpp).
 
 // -----------------------------------------------------------------------------
-// fondo.fs — fragment shader del FONDO (Práctico 08, Partes 4 y 5 + opcional)
+// fondo.fs — fragment shader del FONDO (Práctico 08, Partes 4 y 5 + opcional; Práctico 09)
 //
 // Pinta cada píxel del fondo por CAPAS, según su dirección d:
 //   1. CIELO (por encima del horizonte): el cubemap (Parte 4) o el degradé 1D
@@ -32,6 +32,16 @@
 // la de un plano horizontal: (0, 0, 1) en esta escena Z-arriba (la guía dice
 // (0, 1, 0) porque usa Y arriba). El CIELO no se ilumina: el cubemap ya es la
 // foto de un cielo iluminado.
+//
+// Práctico 09 (Parte 4): la niebla EXPONENCIAL llega a los dos colores del fondo:
+//   - SUELO CONTINUADO: con aplicar_niebla() en su punto P(t), como la malla.
+//     Como t crece sin límite hacia el horizonte, f -> 1: el suelo llega al
+//     horizonte con el color de la niebla.
+//   - CIELO, solo CERCA DEL HORIZONTE: las direcciones del cubemap no tienen
+//     una distancia, así que no se usa aplicar_niebla(): la mezcla depende de
+//     la ELEVACIÓN. En el horizonte (elevación 0) f = 1 y el cielo vale lo
+//     mismo que el suelo lejano: desaparece la línea recta que se veía en el
+//     Práctico 08 (Practico08-Consultas.md, pregunta 22).
 // -----------------------------------------------------------------------------
 
 // ENTRADA (in): la dirección de este píxel, interpolada desde fondo.vs (en el
@@ -51,10 +61,12 @@ uniform vec2  uOjoUV;            // posición (x, y) del ojo en el mundo, MÓDUL
                                  // las (u, v) del terreno (Terrain::kPeriodoUV), unidades de escena
 uniform float uAlturaOjo;        // altura del ojo SOBRE el plano del suelo (unidades de escena)
 uniform float uTamTesela;        // tamaño de una tesela (el mismo uTamTesela del terreno)
+uniform int   uNieblaCielo;      // P09, Parte 4: 1 = el cielo se funde con la niebla cerca del
+                                 // horizonte; 0 = no, como el P08 (tecla J, para comparar)
 
 // La luz (uSolDir, uSolColor, uAmbiente, uModoSuelo, iluminar_suelo), la niebla
-// (uNieblaColor, uNieblaInicio, uNieblaFin, aplicar_niebla) y la posición del
-// ojo en mundo (uOjo) vienen de iluminacion.glsl.
+// (uNieblaColor, uVisibilidad, aplicar_niebla) y la posición del ojo en mundo
+// (uOjo) vienen de iluminacion.glsl.
 
 // Dirección de NUESTRA escena (Z arriba) -> convención del cubemap (Y arriba).
 // (x, y, z) -> (x, z, -y) es una ROTACIÓN de -90° alrededor del eje X: lleva
@@ -89,6 +101,21 @@ void main()
     vec3 cielo_degr  = texture(uDegrade, s).rgb;                        // color del degradé
     vec3 cielo       = (uModoCielo == 1) ? cielo_degr : cielo_cubo;     // el cielo elegido (tecla K)
 
+    // P09 (Parte 4): NIEBLA EN EL CIELO, solo en los primeros grados sobre el
+    // horizonte. Con d unitaria, d.z es el SENO de la elevación (la guía dice
+    // d.y porque usa Y arriba). smoothstep(0, 0.10, d.z) sube de 0 a 1, con
+    // forma de S (sin quiebres), mientras d.z va de 0 a 0,10, o sea entre 0° y
+    // asin(0,10) = 5,7° de elevación. Entonces:
+    //   f_cielo = 1 - smoothstep(...):  1 en el horizonte (y debajo), 0 desde 5,7°.
+    // En el horizonte el cielo vale EXACTAMENTE el color de la niebla, igual
+    // que el suelo lejano (f -> 1): no queda ninguna línea entre los dos. Más
+    // arriba de 5,7° el cielo queda como está. Con la niebla apagada (N,
+    // uVisibilidad <= 0) o con J en "cielo sin niebla", no se mezcla.
+    if (uVisibilidad > 0.0 && uNieblaCielo == 1) {
+        float f_cielo = 1.0 - smoothstep(0.0, 0.10, d.z);   // factor de niebla del cielo
+        cielo = mix(cielo, uNieblaColor, f_cielo);
+    }
+
     // --- 2. Suelo continuado: rayo P(t) = ojo + t d contra el plano ----------
     //   ojo.z + t d.z = z_suelo   ->   t = (ojo.z - z_suelo) / (-d.z) = uAlturaOjo / (-d.z)
     // t > 0 solo si d.z < 0 (el rayo baja). max(-d.z, 1e-4) evita dividir por 0
@@ -112,6 +139,8 @@ void main()
     const vec3 N_PLANO = vec3(0.0, 0.0, 1.0);      // normal del plano horizontal (Z arriba)
     vec3 suelo = iluminar_suelo(P_suelo, N_PLANO, kd_suelo);
     suelo = aplicar_niebla(suelo, P_suelo);        // la MISMA niebla que la malla, DESPUÉS de la luz
+                                                   // (P09, Parte 4: exponencial; hacia el horizonte t
+                                                   // crece sin límite y f -> 1: el color de la niebla)
 
     // Las TRES texturas se leyeron siempre, ANTES de elegir: el filtrado con
     // mipmaps compara coordenadas de píxeles vecinos y dentro de un if eso no

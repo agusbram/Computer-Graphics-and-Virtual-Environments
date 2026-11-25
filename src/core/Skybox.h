@@ -64,9 +64,15 @@ struct ParametrosFondo {
     // Práctico 09 (Parte 1): la luz y la niebla de la escena (el MISMO struct
     // que reciben el terreno y el avión; no es propio) y el ojo en mundo
     // (origen flotante, relativo al avión) para el código común (uOjo).
-    // Reemplazan a niebla_color / niebla_inicio / niebla_fin del Práctico 08.
+    // Reemplazan a niebla_color / niebla_inicio / niebla_fin del Práctico 08
+    // (desde la Parte 4 la niebla es exponencial: color y visibilidad).
     const Iluminacion* iluminacion {nullptr};
     glm::vec3 ojo {0.0f};
+    // Práctico 09 (Parte 4): el cielo se funde con la niebla en los primeros
+    // grados sobre el horizonte (lo correcto). false = el cielo sin niebla,
+    // como en el Práctico 08 (tecla J, para ver la línea del horizonte que
+    // arregla). Va acá y no en Iluminacion porque solo lo usa el fondo.
+    bool      niebla_cielo {true};
 };
 
 class Skybox {
@@ -121,6 +127,7 @@ private:
     int loc_proyeccion_ {-1}, loc_vista_ {-1};
     int loc_modo_ {-1}, loc_suelo_continuado_ {-1};
     int loc_ojo_uv_ {-1}, loc_altura_ojo_ {-1}, loc_tam_tesela_ {-1};
+    int loc_niebla_cielo_ {-1};   // P09, Parte 4: uNieblaCielo
     // P09: las de la escena (sol, ojo, niebla) del código común; reemplazan a
     // loc_niebla_* del Práctico 08. Se llenan en init con el mismo ayudante
     // que usa main para el terreno y el avión.

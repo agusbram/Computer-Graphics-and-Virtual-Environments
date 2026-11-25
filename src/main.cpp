@@ -1,6 +1,17 @@
 // -----------------------------------------------------------------------------
 // main.cpp — la aplicación (Prácticos 04 a 09)
 //
+// Lo nuevo del Práctico 09, Parte 4 — la NIEBLA EXPONENCIAL:
+//   1. f = 1 - e^(-d/V) con una VISIBILIDAD V fija (kVisibilidad = 6 km), en
+//      lugar de la lineal (inicio y fin) de los Prácticos 07 y 08. La aplica el
+//      código común al terreno, al suelo continuado y al avión.
+//   2. El CIELO se funde con la niebla en los primeros 5,7° sobre el horizonte
+//      (fondo.fs): desaparece la línea recta del horizonte del Práctico 08.
+//   3. Tecla J (verificación): color de la niebla = horizonte del cielo / gris
+//      / cielo sin niebla (como el P08). N sigue siendo niebla sí/no.
+//   4. Al cambiar la altura (RePág/AvPág) se informa cuánta niebla tiene el
+//      punto MÁS CERCANO del terreno (el de abajo): f = 1 - e^(-h/V).
+//
 // Lo nuevo del Práctico 09, Parte 3 — la AERONAVE ILUMINADA:
 //   1. Cada pieza lleva un MATERIAL {kd, ks, ns} en su RenderItem en lugar del
 //      color (kd = el color de antes; ks y ns según la apariencia). Se envía al
@@ -70,7 +81,7 @@
 
 #include <algorithm>        // std::min, std::max, std::clamp (elevación del sol, P09)
 #include <array>            // std::array (las 6 caras del cubemap)
-#include <cmath>            // std::atan, std::floor, std::round
+#include <cmath>            // std::atan, std::floor, std::round, std::exp (niebla, P09)
 #include <cstdlib>          // EXIT_FAILURE, EXIT_SUCCESS
 #include <exception>        // std::exception
 #include <iostream>         // std::cout, std::endl, std::cerr
@@ -152,7 +163,7 @@ struct AppContext {
     bool wireframe = false;
     bool colores_niveles = false;   // L: un color por nivel del clipmap
     bool morph = true;              // M: geomorphing de los clipmaps (etapa 2)
-    bool niebla = true;             // N: niebla on/off (P07 mejora leve; se mejora en P09)
+    bool niebla = true;             // N: niebla on/off (P07 mejora leve; P09 Parte 4: exponencial)
     // --- Práctico 08 ---
     bool  textura_prueba = false;   // U: imagen de prueba en el avión y el terreno (Parte 3)
     int   apariencia_avion = 0;     // T: 0 camuflaje, 1 metal gris, 2 colores de las piezas (P04)
@@ -168,6 +179,7 @@ struct AppContext {
     bool  ver_normales  = false;    // V: el avión pinta su normal como color (Parte 3)
     bool  matriz_normal = true;     // X: true = matriz normal G (lo correcto); false = M (el error)
     bool  blinn_phong   = false;    // R: false = Phong (R·V), true = Blinn-Phong (N·H, ns x 4)
+    int   modo_niebla   = 0;        // J: 0 color del horizonte, 1 gris, 2 cielo sin niebla (Parte 4)
 };
 
 // Práctico 08: ubicaciones de los uniforms "por pieza" de un programa. Se buscan
@@ -375,14 +387,21 @@ int main()
             const UniformsIluminacion ul_terreno  = buscar_uniforms_iluminacion(shader_terreno, "terreno");
             const UniformsIluminacion ul_aeronave = buscar_uniforms_iluminacion(shader_aeronave, "aeronave");
 
-            // Niebla lineal (mejora leve del P07): empieza a 300 u (3 km) y es
-            // total a 1800 u (18 km), antes del borde del clipmap (2560 u) y del
-            // far (3000 u). Su COLOR, desde el P08, es el del horizonte del
-            // cielo (lo calcula el Skybox al cargar el cubemap, más abajo).
-            // P09: son los valores iniciales de `luz` (más abajo); la niebla
-            // pasa a la exponencial en la Parte 4.
-            const float kNieblaInicio = 300.0f;
-            const float kNieblaFin    = 1800.0f;
+            // P09 (Parte 4): NIEBLA EXPONENCIAL, f = 1 - e^(-d/V). La
+            // VISIBILIDAD V es la distancia a la que la niebla llega al 63 %
+            // (a 2V, 86 %; a 3V, 95 %). Decisión 12: V FIJA = 600 u = 6 km.
+            //   - Tope por el tamaño del terreno: para que la niebla tape el
+            //     borde del clipmap (que la guía pide al 92 %: L/2 >= 2,5·V),
+            //     con L/2 = 2560 u (25,6 km) hace falta V <= 1024 u (~10 km).
+            //     Con 6 km, en el borde f = 1 - e^(-2560/600) = 98,6 %.
+            //   - Es un día con algo de bruma: el 95 % (casi no se distingue
+            //     nada) está a 3V = 18 km. La lineal del P08 llegaba al 100 % a
+            //     18 km pero empezaba recién a 3 km.
+            //   - Con la gamma (Parte 5) hay que volver a mirarla.
+            // Su COLOR es el del horizonte del cielo (lo calcula el Skybox al
+            // cargar el cubemap, más abajo); con la tecla J, un gris.
+            const float     kVisibilidad = 600.0f;               // u de escena (6 km)
+            const glm::vec3 kNieblaGris  = glm::vec3(0.5f);      // tecla J: un color que NO es el del cielo
 
             // --- Escena: la aeronave (Práctico 04) -------------------------
             Aircraft avion;
@@ -515,9 +534,17 @@ int main()
                           << h.b << "); sol pintado en (" << s.x << ", " << s.y << ", "
                           << s.z << "), elevacion " << fondo.elevacion_sol_grados()
                           << " grados" << std::endl;
+                // P09 (Parte 4): la niebla elegida y cuánto tapa el borde del
+                // clipmap (la guía pide >= 92 % ahí: L/2 >= 2,5·V).
+                const float borde = 0.5f * terreno.extension();   // L/2, u
+                std::cout << "niebla   : exponencial, V = " << kVisibilidad * kMetrosPorUnidad
+                          << " m (63 % a V, 95 % a 3V); en el borde del clipmap ("
+                          << borde * kMetrosPorUnidad << " m): "
+                          << std::round((1.0f - std::exp(-borde / kVisibilidad)) * 1000.0f) / 10.0f
+                          << " %" << std::endl;
             }
 
-            // --- Luz y niebla de la escena (Práctico 09, Partes 1 y 2) ------
+            // --- Luz y niebla de la escena (Práctico 09, Partes 1 a 4) ------
             // UN SOLO LUGAR del lado de la CPU para los parámetros de la luz y
             // de la niebla: esta instancia. Desde acá se envían, en cada
             // cuadro, a los tres programas. El color del sol y el ambiente
@@ -529,10 +556,11 @@ int main()
             // escribe; el primer cuadro ya pasa por ahí):
             //   sol_dir      -> teclas O/P/H (por omisión, el sol PINTADO);
             //   modo_suelo   -> tecla B;
-            //   niebla_color -> tecla K (cielo activo);
-            //   niebla_fin   -> tecla N (niebla on/off).
+            //   niebla_color -> teclas K (cielo activo) y J (gris);
+            //   visibilidad  -> tecla N (niebla on/off).
+            // (Por eso no hay asignaciones acá: todos los campos de `luz` que
+            // no son los valores por omisión dependen de alguna tecla.)
             Iluminacion luz;
-            luz.niebla_inicio = kNieblaInicio;
 
             // 4) Decisión 1: la GPU ya tiene su copia -> se libera la de la CPU
             //    (el cubemap solo son ~19 MB en RGBA). Las referencias img_* y
@@ -559,7 +587,8 @@ int main()
             std::cout << "teclas P09: B=luz del suelo (con luz/sin luz/normal constante), "
                       << "O/P=bajar/subir el sol, H=sol pintado del cubemap, "
                       << "V=normales del avion como color, X=matriz normal / M, "
-                      << "R=Phong / Blinn-Phong" << std::endl;
+                      << "R=Phong / Blinn-Phong, "
+                      << "J=niebla (horizonte / gris / cielo sin niebla)" << std::endl;
             {
                 GLint muestras = 0;
                 glGetIntegerv(GL_SAMPLES, &muestras);
@@ -573,8 +602,8 @@ int main()
             // Contexto para las callbacks (cámara + toggles discretos).
             // ctx es el "tablero de interruptores" del programa: guarda el
             // estado de cada tecla de depuración (pausa, F, L, M, N, U, T, I,
-            // K, G, 1, RePág/AvPág; P09: B, O/P, H, V, X, R) y un puntero a la
-            // cámara.
+            // K, G, 1, RePág/AvPág; P09: B, O/P, H, V, X, R, J) y un puntero a
+            // la cámara.
             // El problema que resuelve: GLFW llama a key_callback y a
             // framebuffer_size_callback con SOLO la ventana y la tecla; son
             // funciones libres y no ven las variables de main. La solución de
@@ -750,6 +779,12 @@ int main()
                 // Altura sobre el terreno: se informa al cambiarla (RePág/AvPág)
                 // junto con la banda TEÓRICA, atan(h / (L/2)), para el clipmap
                 // completo y para el nivel fino solo (la tabla de la Parte 5).
+                // P09 (Parte 4): y la NIEBLA del punto más cercano del terreno.
+                // La niebla usa la distancia en el ESPACIO: a una altura h el
+                // suelo más cercano (el de abajo) ya está a d = h, así que
+                // NINGÚN punto del terreno tiene menos niebla que
+                // f = 1 - e^(-h/V). Sirve para anotar a qué altura el terreno
+                // empieza a perderse (verificación de la guía).
                 {
                     static float extra_informado = -1.0f;
                     if (ctx.altura_extra != extra_informado) {
@@ -757,10 +792,12 @@ int main()
                         const float h = ojo_mundo.z - terreno.altura_terreno();   // u
                         const float banda_lod = glm::degrees(std::atan(h / (0.5f * terreno.extension())));
                         const float banda_fino = glm::degrees(std::atan(h / (0.5f * terreno.extension_nivel_fino())));
+                        const float f_min = 1.0f - std::exp(-h / kVisibilidad);   // niebla del suelo de abajo
                         std::cout << "[altura] ojo a " << h * kMetrosPorUnidad
                                   << " m sobre el terreno -> banda teorica: clipmap "
                                   << banda_lod << " grados, solo nivel fino "
-                                  << banda_fino << " grados" << std::endl;
+                                  << banda_fino << " grados; niebla del suelo mas cercano "
+                                  << std::round(f_min * 100.0f) << " %" << std::endl;
                     }
                 }
 
@@ -768,10 +805,15 @@ int main()
                 // degradé, tecla K). El clear usa el mismo color, aunque el
                 // fondo tapa toda la pantalla.
                 // P09: se actualiza en `luz`, el único lugar de estos datos.
-                luz.niebla_color = fondo.color_horizonte();
-                // niebla_fin = 0 es la señal de "niebla apagada" (tecla N): el
-                // código común no aplica niebla si uNieblaFin <= 0.
-                luz.niebla_fin = ctx.niebla ? kNieblaFin : 0.0f;
+                // P09 (Parte 4), tecla J = 1: un GRIS, para la verificación de
+                // la guía: con un color que no es el del cielo, el terreno
+                // lejano y el cielo dejan de coincidir y aparece una franja
+                // sobre el horizonte; con el del cielo tiene que desaparecer.
+                luz.niebla_color = (ctx.modo_niebla == 1) ? kNieblaGris : fondo.color_horizonte();
+                // visibilidad = 0 es la señal de "niebla apagada" (tecla N): el
+                // código común no aplica niebla si uVisibilidad <= 0 (y el
+                // fondo no mezcla el cielo).
+                luz.visibilidad = ctx.niebla ? kVisibilidad : 0.0f;
                 const glm::vec3 color_niebla = luz.niebla_color;
 
                 // P09 (Parte 2): el SOL. Misma orientación horizontal (acimut)
@@ -854,6 +896,7 @@ int main()
                 pf.suelo_continuado = ctx.suelo_continuado;
                 pf.iluminacion = &luz;      // P09: la MISMA luz y niebla que la malla
                 pf.ojo         = ojo_rel;   // P09: el ojo en mundo (origen flotante)
+                pf.niebla_cielo = (ctx.modo_niebla != 2);   // P09, Parte 4 (J = 2: el cielo como el P08)
                 fondo.draw(pf);
 
                 glfwSwapBuffers(window);
@@ -1016,6 +1059,18 @@ void key_callback(GLFWwindow* window, int key, [[maybe_unused]] int scancode,
         std::cout << "[R] brillo especular: " << (ctx->blinn_phong
                      ? "Blinn-Phong (N.H, exponente ns x 4)"
                      : "Phong (R.V)") << std::endl;
+    }
+
+    // --- Práctico 09 (Parte 4): verificación de la niebla ---------------------
+    if (key == GLFW_KEY_J) {
+        // 0: lo correcto. 1: la verificación de la guía (niebla gris: aparece la
+        // franja sobre el horizonte). 2: el cielo sin la mezcla del horizonte,
+        // como en el P08 (vuelve la línea recta entre el suelo y el cielo).
+        ctx->modo_niebla = (ctx->modo_niebla + 1) % 3;
+        const char* modos[3] = {"color del HORIZONTE del cielo, cielo con niebla (correcto)",
+                                "GRIS (aparece una franja sobre el horizonte)",
+                                "cielo SIN niebla, como el P08 (vuelve la linea del horizonte)"};
+        std::cout << "[J] niebla: " << modos[ctx->modo_niebla] << std::endl;
     }
 }
 

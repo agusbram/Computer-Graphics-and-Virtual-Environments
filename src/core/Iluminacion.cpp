@@ -22,8 +22,7 @@ UniformsIluminacion buscar_uniforms_iluminacion(const Shader& programa,
     u.ambiente      = programa.loc("uAmbiente", false);
     u.ojo           = programa.loc("uOjo", false);
     u.niebla_color  = programa.loc("uNieblaColor", false);
-    u.niebla_inicio = programa.loc("uNieblaInicio", false);
-    u.niebla_fin    = programa.loc("uNieblaFin", false);
+    u.visibilidad   = programa.loc("uVisibilidad", false);   // P09, Parte 4
     u.modo_suelo    = programa.loc("uModoSuelo", false);
     u.blinn_phong   = programa.loc("uBlinnPhong", false);
 
@@ -33,7 +32,7 @@ UniformsIluminacion buscar_uniforms_iluminacion(const Shader& programa,
     const std::pair<const char*, int> todos[] = {
         {"uSolDir", u.sol_dir}, {"uSolColor", u.sol_color}, {"uAmbiente", u.ambiente},
         {"uOjo", u.ojo}, {"uNieblaColor", u.niebla_color},
-        {"uNieblaInicio", u.niebla_inicio}, {"uNieblaFin", u.niebla_fin},
+        {"uVisibilidad", u.visibilidad},
         {"uModoSuelo", u.modo_suelo}, {"uBlinnPhong", u.blinn_phong}};
     int usados = 0;
     std::string faltan;
@@ -63,8 +62,7 @@ void enviar_iluminacion(const Shader& programa, const UniformsIluminacion& u,
     programa.set_uniform(u.ambiente, luz.ambiente);
     programa.set_uniform(u.ojo, ojo);
     programa.set_uniform(u.niebla_color, luz.niebla_color);
-    programa.set_uniform(u.niebla_inicio, luz.niebla_inicio);
-    programa.set_uniform(u.niebla_fin, luz.niebla_fin);
+    programa.set_uniform(u.visibilidad, luz.visibilidad);
     programa.set_uniform(u.modo_suelo, luz.modo_suelo);
     programa.set_uniform(u.blinn_phong, luz.blinn_phong);
 }

@@ -39,7 +39,8 @@ que se desarrollan los prácticos del proyecto integrador
     **geomorphing** en el vertex shader + triángulos de área cero (sin grietas
     ni *popping*).
   - *Niebla* (mejora leve, adelanto del Práctico 09): niebla lineal en el
-    fragment shader que oculta el borde del terreno; se mejora en el P09.
+    fragment shader que oculta el borde del terreno; en el P09 (Parte 4) pasó
+    a ser exponencial.
 - **Práctico 08** — *Texturas y cielo*: imágenes decodificadas con
   **stb_image** en `ResourceManager` y subidas a la GPU por el módulo
   **`Texture`** (DSA, 4 etapas, mipmaps); **pasto** en el terreno con
@@ -66,6 +67,10 @@ que se desarrollan los prácticos del proyecto integrador
     la apariencia: mate, metal, plástico). **Matriz normal** calculada en la CPU
     por pieza. La nariz y la cola salen de un cono unitario estirado, y el ápice
     del cono tiene un vértice por gajo. Teclas `V`, `X`, `R` (Blinn-Phong).
+  - *Parte 4* ✔: **niebla exponencial**, `f = 1 − e^(−d/V)` con visibilidad
+    `V = 6 km` (98,6 % en el borde del clipmap), en el código común: terreno,
+    suelo continuado y avión a la vez. El cielo se funde con la niebla cerca del
+    horizonte (sin la línea recta del P08). Tecla `J`.
 
 ---
 
@@ -100,7 +105,7 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
   constante); `O`/`P` = bajar/subir el sol (5° por pulsación); `H` = volver al
   sol pintado del cubemap; `V` = normales del avión como color; `X` = normales
   del avión con `M` en lugar de la matriz normal (el error); `R` = Phong ↔
-  Blinn-Phong.
+  Blinn-Phong; `J` = color de la niebla (horizonte / gris / cielo sin niebla).
 - **Mouse**: botón izquierdo arrastrado = orbitar (yaw/pitch); botón derecho
   arrastrado (vertical) = acercar/alejar.
 - La consola muestra versión de driver/vendor/GLSL al arrancar.
@@ -114,10 +119,10 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
 ```
 ├── assets/
 │   ├── shaders/            # fuentes GLSL externos (SIN #version: la agrega Shader, P09):
-│   │                       #   iluminacion.glsl (código COMÚN: luz + niebla)     — P09
+│   │                       #   iluminacion.glsl (código COMÚN: luz Phong + niebla exponencial) — P09
 │   │                       #   terreno.*  (morph del LOD + pasto + luz + niebla) — P08/P09
 │   │                       #   aeronave.* (material + chapa/camuflaje + luz + niebla) — P08/P09
-│   │                       #   fondo.*    (cielo cubemap/degradé + suelo continuado iluminado) — P08/P09
+│   │                       #   fondo.*    (cielo cubemap/degradé con niebla en el horizonte + suelo continuado iluminado) — P08/P09
 │   │                       #   solid.*    (OBSOLETOS: la versión del P07, ya no se cargan)
 │   └── textures/           # P08: suelo/ (pasto), cielo/ (cubemap), avion/ (chapa CC0),
 │                           #      prueba/ (imagen UV) + LICENCIAS.md (avion/: chapa CC0 + camuflaje generado)
@@ -455,10 +460,13 @@ Se hace **parte por parte**. Hecho hasta ahora:
 | **Parte 3:** `aeronave.vs/.fs`, `main.cpp` | Normal en mundo con la **matriz normal** `(M⁻¹)ᵀ`, calculada en la CPU por pieza (`set_uniform(mat3)`). Luz con `iluminar()`; `kd` × textura. Teclas `V`, `X`, `R`. |
 | **Parte 3:** `Aircraft`, `Primitives` | Brillo (`ks`, `ns`) por apariencia. Nariz y cola: **un cono unitario** estirado con `S(r, h, r)` (3 mallas). Ápice del cono: **un vértice por gajo**. |
 | **Parte 3:** `iluminacion.glsl`, `Iluminacion` | Blinn-Phong como alternativa (`uBlinnPhong`): `(N·H)^(4·ns)`. |
+| **Parte 4:** `iluminacion.glsl`, `Iluminacion` | Niebla **exponencial** con la visibilidad `uVisibilidad` (`V = 6 km`), en lugar de la lineal (inicio y fin). |
+| **Parte 4:** `fondo.fs`, `Skybox`, `main.cpp` | El cielo se mezcla con la niebla en los primeros 5,7° (`1 − smoothstep(0, 0.10, d.z)`). Tecla `J`. Informes de la niebla en el borde del clipmap y del suelo más cercano según la altura. |
 
 - **Parte 1 = reorganización:** la imagen sale igual que en el P08 (verificado con capturas). La niebla sigue siendo lineal hasta la Parte 4.
 - **Parte 2 = el terreno iluminado:** verificado con los tres modos de `B` desde la misma cámara, el sol bajo y alto, el brillo igual a los dos lados del borde malla/suelo continuado y la normal como color en el borde de los anillos (con capturas en `docs-p09/img/`).
 - **Parte 3 = el avión iluminado:** verificado con las normales como color (`V`), la comparación `M` / matriz normal (`X`: cambian solo la nariz y la cola), los reflejos de las tres apariencias, Phong contra Blinn-Phong (`R`) y el avión alabeado.
+- **Parte 4 = la niebla exponencial:** verificado con la niebla gris (aparece la franja), el cielo sin niebla (vuelve la línea del P08), el borde del clipmap con y sin niebla, y el contraste del terreno medido a varias alturas.
 - **Arreglo:** un shader que no compila ya no hace caer el programa (se lanza una excepción en vez de cerrar la ventana antes de destruir los `Shader`).
 
 Ver [`Practico09-Decisiones.md`](Practico09-Decisiones.md) y [`Practico09-Consultas.md`](Practico09-Consultas.md).
@@ -471,7 +479,8 @@ Ver [`Practico09-Decisiones.md`](Practico09-Decisiones.md) y [`Practico09-Consul
   las 17 decisiones de diseño (15 antes de implementar y 2 al empezar la Parte 3) y cada parte hecha
   (Parte 1: código GLSL común, `#version` y `#line`, struct `Iluminacion`;
   Parte 2: el terreno iluminado, material del suelo, normales del clipmap;
-  Parte 3: el avión iluminado, material, matriz normal, ápice del cono).
+  Parte 3: el avión iluminado, material, matriz normal, ápice del cono;
+  Parte 4: niebla exponencial, visibilidad elegida, niebla en el cielo).
 - [`Practico09-Consultas.md`](Practico09-Consultas.md) — FAQ del P09.
 - [`Practico08-Decisiones.md`](Practico08-Decisiones.md) — texturas y cielo:
   `ImageData`/`load_image` (flip, RGBA, `unload_image`), módulo `Texture` (4 etapas

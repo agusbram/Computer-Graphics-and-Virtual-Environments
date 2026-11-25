@@ -105,6 +105,7 @@ void Skybox::init(const ShaderSource& fuente, const std::array<const ImageData*,
     loc_ojo_uv_           = shader_.loc("uOjoUV");
     loc_altura_ojo_       = shader_.loc("uAlturaOjo");
     loc_tam_tesela_       = shader_.loc("uTamTesela");
+    loc_niebla_cielo_     = shader_.loc("uNieblaCielo");   // P09, Parte 4 (tecla J)
     // Práctico 09: los uniforms de la escena (código común), con el mismo
     // ayudante que usa main para el terreno y el avión.
     u_iluminacion_ = buscar_uniforms_iluminacion(shader_, "fondo");
@@ -272,6 +273,7 @@ void Skybox::draw(const ParametrosFondo& p) const
     shader_.set_uniform(loc_ojo_uv_, p.ojo_uv);
     shader_.set_uniform(loc_altura_ojo_, p.altura_ojo);
     shader_.set_uniform(loc_tam_tesela_, p.tam_tesela);
+    shader_.set_uniform(loc_niebla_cielo_, p.niebla_cielo ? 1 : 0);   // P09, Parte 4
     // Práctico 09: sol, niebla y ojo de la ESCENA, del mismo struct que usan el
     // terreno y el avión (así el suelo continuado recibe exactamente la misma
     // niebla que la malla y no se ve el borde).

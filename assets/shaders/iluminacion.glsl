@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
 // iluminacion.glsl — código GLSL COMÚN a los fragment shaders de la escena
 // (Práctico 09: Parte 1, el archivo común; Parte 2, la luz del suelo; Parte 3,
-// el avión y Blinn-Phong)
+// el avión y Blinn-Phong; Parte 4, la niebla exponencial)
 //
 // El terreno, el avión y el fondo (que pinta el suelo continuado) tienen que
 // usar EL MISMO sol y LA MISMA niebla: si uno usara otro modelo u otros
@@ -44,11 +44,11 @@ uniform vec3  uAmbiente;      // luz ambiente (la que llega a todos lados, aun e
 uniform vec3  uOjo;           // posición de la cámara, en mundo (relativa al avión: origen flotante)
 uniform int   uBlinnPhong;    // P09, Parte 3 (tecla R): 0 = Phong (vector R), 1 = Blinn-Phong (vector H)
 
-// Niebla. Parte 1: la niebla LINEAL del Práctico 08, sin cambios (solo se mudó
-// a este archivo). En la Parte 4 pasa a la exponencial, con una visibilidad V.
-uniform vec3  uNieblaColor;   // color de la niebla = color del horizonte del cielo
-uniform float uNieblaInicio;  // distancia donde EMPIEZA (antes: sin niebla), unidades de escena
-uniform float uNieblaFin;     // distancia donde es TOTAL; <= 0 -> niebla apagada (tecla N)
+// Niebla. Parte 1: la lineal del Práctico 08 (con un inicio y un fin), mudada
+// a este archivo. Parte 4: EXPONENCIAL, con un solo parámetro, la VISIBILIDAD V.
+uniform vec3  uNieblaColor;   // color de la niebla = color del horizonte del cielo (tecla J: gris)
+uniform float uVisibilidad;   // V: distancia a la que la niebla llega al 63 %, unidades de escena;
+                              // <= 0 -> niebla apagada (tecla N)
 
 // --- Material (Partes 2 y 3) ----------------------------------------------------
 // Coeficientes del modelo de Phong de UN objeto. Es un dato del OBJETO, no de
@@ -162,18 +162,35 @@ vec3 iluminar_suelo(vec3 P, vec3 N, vec3 kd)
 }
 
 // NIEBLA: mezcla el color con el de la niebla según la distancia del punto P
-// (en mundo) al ojo. mix(a, b, f) = a·(1-f) + b·f: f = 0 sin niebla, 1 total.
-// Se aplica DESPUÉS de la iluminación (la niebla no se ilumina).
-// Parte 1: fórmula LINEAL (la del Práctico 08). Lo único que cambió respecto
-// del 08 es de dónde sale la distancia: antes la calculaba el vertex shader en
-// el sistema de la cámara; ahora es |P - uOjo| en mundo. Es la MISMA distancia
-// (la vista no cambia distancias), así que la imagen no tiene que cambiar.
+// (en mundo) al ojo:
+//   C = (1 - f)·C_luz + f·C_niebla  =  mix(C_luz, C_niebla, f)
+// f = 0: el color iluminado tal cual; f = 1: solo el color de la niebla.
+// Se aplica DESPUÉS de la iluminación: la niebla es el AIRE entre el punto y
+// el ojo, no depende de la orientación de la superficie ni del sol (la niebla
+// no se ilumina).
+//
+// Parte 4 — EXPONENCIAL:  f = 1 - e^(-d/V).
+//   Cada tramo de aire de largo V deja pasar la MISMA fracción de la luz del
+//   objeto (e^-1 = 37 %): por eso es una exponencial. Con la visibilidad V:
+//     d = V   -> f = 63 %        d = 2V   -> f = 86 %
+//     d = 2,5V -> f = 92 %       d = 3V   -> f = 95 %
+//   A diferencia de la LINEAL del Práctico 08 (cero hasta un inicio d0 y total
+//   desde un fin d1), empieza a actuar desde d = 0 y nunca llega a 1 del todo:
+//   no hay una distancia donde "arranca" ni un corte. Un solo parámetro (V) y
+//   una forma que imita la atmósfera (perspectiva atmosférica).
+//   (La exponencial CUADRÁTICA, 1 - e^(-(d/V)^2), deja más transparente lo
+//   cercano y cierra más lo lejano; la guía propone la simple.)
+//
+// La distancia d es la distancia en el ESPACIO, |P - uOjo|, en mundo (origen
+// flotante: P y uOjo relativos al avión; la resta da lo mismo). Por eso, a una
+// altura h sobre el terreno, el punto más cercano del suelo ya está a d >= h
+// (ver Practico09-Decisiones.md, Parte 4: la altitud).
 vec3 aplicar_niebla(vec3 color, vec3 P)
 {
-    if (uNieblaFin <= 0.0) {                // tecla N: niebla apagada
+    if (uVisibilidad <= 0.0) {              // tecla N: niebla apagada
         return color;
     }
-    float d = length(P - uOjo);             // distancia al ojo
-    float f = clamp((d - uNieblaInicio) / (uNieblaFin - uNieblaInicio), 0.0, 1.0);
+    float d = length(P - uOjo);             // distancia del punto al ojo (unidades de escena)
+    float f = 1.0 - exp(-d / uVisibilidad); // factor de niebla, en [0, 1)
     return mix(color, uNieblaColor, f);
 }
