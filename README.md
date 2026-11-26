@@ -68,9 +68,14 @@ que se desarrollan los prácticos del proyecto integrador
     por pieza. La nariz y la cola salen de un cono unitario estirado, y el ápice
     del cono tiene un vértice por gajo. Teclas `V`, `X`, `R` (Blinn-Phong).
   - *Parte 4* ✔: **niebla exponencial**, `f = 1 − e^(−d/V)` con visibilidad
-    `V = 6 km` (98,6 % en el borde del clipmap), en el código común: terreno,
+    `V = 6 km` (98,6 % en el borde del clipmap; 10 km desde la Parte 5), en el código común: terreno,
     suelo continuado y avión a la vez. El cielo se funde con la niebla cerca del
     horizonte (sin la línea recta del P08). Tecla `J`.
+  - *Parte 5* ✔: **corrección gamma** en el shader (`pow 2,2`): cada color
+    (texturas, cubemap, `kd`, niebla) entra en lineal y el resultado sale en
+    sRGB. El cielo se ve igual con y sin ella. Con la corrección activa se
+    reajustaron la luz (ambiente 0,1 / sol 0,9) y la visibilidad (`V = 10 km`,
+    92,3 % en el borde del clipmap). Tecla `C`.
 
 ---
 
@@ -105,7 +110,8 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
   constante); `O`/`P` = bajar/subir el sol (5° por pulsación); `H` = volver al
   sol pintado del cubemap; `V` = normales del avión como color; `X` = normales
   del avión con `M` en lugar de la matriz normal (el error); `R` = Phong ↔
-  Blinn-Phong; `J` = color de la niebla (horizonte / gris / cielo sin niebla).
+  Blinn-Phong; `J` = color de la niebla (horizonte / gris / cielo sin niebla);
+  `C` = corrección gamma (activa / apagada).
 - **Mouse**: botón izquierdo arrastrado = orbitar (yaw/pitch); botón derecho
   arrastrado (vertical) = acercar/alejar.
 - La consola muestra versión de driver/vendor/GLSL al arrancar.
@@ -119,7 +125,7 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
 ```
 ├── assets/
 │   ├── shaders/            # fuentes GLSL externos (SIN #version: la agrega Shader, P09):
-│   │                       #   iluminacion.glsl (código COMÚN: luz Phong + niebla exponencial) — P09
+│   │                       #   iluminacion.glsl (código COMÚN: luz Phong + niebla exponencial + gamma) — P09
 │   │                       #   terreno.*  (morph del LOD + pasto + luz + niebla) — P08/P09
 │   │                       #   aeronave.* (material + chapa/camuflaje + luz + niebla) — P08/P09
 │   │                       #   fondo.*    (cielo cubemap/degradé con niebla en el horizonte + suelo continuado iluminado) — P08/P09
@@ -460,13 +466,16 @@ Se hace **parte por parte**. Hecho hasta ahora:
 | **Parte 3:** `aeronave.vs/.fs`, `main.cpp` | Normal en mundo con la **matriz normal** `(M⁻¹)ᵀ`, calculada en la CPU por pieza (`set_uniform(mat3)`). Luz con `iluminar()`; `kd` × textura. Teclas `V`, `X`, `R`. |
 | **Parte 3:** `Aircraft`, `Primitives` | Brillo (`ks`, `ns`) por apariencia. Nariz y cola: **un cono unitario** estirado con `S(r, h, r)` (3 mallas). Ápice del cono: **un vértice por gajo**. |
 | **Parte 3:** `iluminacion.glsl`, `Iluminacion` | Blinn-Phong como alternativa (`uBlinnPhong`): `(N·H)^(4·ns)`. |
-| **Parte 4:** `iluminacion.glsl`, `Iluminacion` | Niebla **exponencial** con la visibilidad `uVisibilidad` (`V = 6 km`), en lugar de la lineal (inicio y fin). |
+| **Parte 4:** `iluminacion.glsl`, `Iluminacion` | Niebla **exponencial** con la visibilidad `uVisibilidad` (`V = 6 km`; 10 km desde la Parte 5), en lugar de la lineal (inicio y fin). |
 | **Parte 4:** `fondo.fs`, `Skybox`, `main.cpp` | El cielo se mezcla con la niebla en los primeros 5,7° (`1 − smoothstep(0, 0.10, d.z)`). Tecla `J`. Informes de la niebla en el borde del clipmap y del suelo más cercano según la altura. |
+| **Parte 5:** `iluminacion.glsl`, los tres `.fs` | `a_lineal()` / `a_srgb()` (`pow 2,2`, uniform `uGamma`): cada color entra en lineal y el resultado sale en sRGB, después de la niebla. Las normales como color no se convierten. |
+| **Parte 5:** `main.cpp`, `Iluminacion` | El color de la niebla se pasa a lineal en la CPU. Tecla `C`. Reajuste con la corrección activa: ambiente 0,1 / sol 0,9 y `V = 10 km`. |
 
 - **Parte 1 = reorganización:** la imagen sale igual que en el P08 (verificado con capturas). La niebla sigue siendo lineal hasta la Parte 4.
 - **Parte 2 = el terreno iluminado:** verificado con los tres modos de `B` desde la misma cámara, el sol bajo y alto, el brillo igual a los dos lados del borde malla/suelo continuado y la normal como color en el borde de los anillos (con capturas en `docs-p09/img/`).
 - **Parte 3 = el avión iluminado:** verificado con las normales como color (`V`), la comparación `M` / matriz normal (`X`: cambian solo la nariz y la cola), los reflejos de las tres apariencias, Phong contra Blinn-Phong (`R`) y el avión alabeado.
 - **Parte 4 = la niebla exponencial:** verificado con la niebla gris (aparece la franja), el cielo sin niebla (vuelve la línea del P08), el borde del clipmap con y sin niebla, y el contraste del terreno medido a varias alturas.
+- **Parte 5 = la corrección gamma:** verificado con la misma vista con y sin `C` (el cielo sale igual: diferencia media 0,04 sobre 255), el avión con sus tres apariencias, y las dos fallas de la guía provocadas a propósito en una copia de los shaders (cielo lavado, franja en el horizonte). El ambiente y la visibilidad se eligieron midiendo varias opciones sobre el mismo cuadro.
 - **Arreglo:** un shader que no compila ya no hace caer el programa (se lanza una excepción en vez de cerrar la ventana antes de destruir los `Shader`).
 
 Ver [`Practico09-Decisiones.md`](Practico09-Decisiones.md) y [`Practico09-Consultas.md`](Practico09-Consultas.md).
@@ -476,11 +485,13 @@ Ver [`Practico09-Decisiones.md`](Practico09-Decisiones.md) y [`Practico09-Consul
 - [`Arquitectura-Proyecto.md`](Arquitectura-Proyecto.md) — arquitectura en capas
   del proyecto (aplicación / sistemas / datos), destino del simulador.
 - [`Practico09-Decisiones.md`](Practico09-Decisiones.md) — iluminación y niebla:
-  las 17 decisiones de diseño (15 antes de implementar y 2 al empezar la Parte 3) y cada parte hecha
+  las 19 decisiones de diseño (15 antes de implementar, 2 al empezar la Parte 3 y
+  2 en la Parte 5) y cada parte hecha
   (Parte 1: código GLSL común, `#version` y `#line`, struct `Iluminacion`;
   Parte 2: el terreno iluminado, material del suelo, normales del clipmap;
   Parte 3: el avión iluminado, material, matriz normal, ápice del cono;
-  Parte 4: niebla exponencial, visibilidad elegida, niebla en el cielo).
+  Parte 4: niebla exponencial, visibilidad elegida, niebla en el cielo;
+  Parte 5: corrección gamma, qué se convierte, reajuste de la luz y la niebla).
 - [`Practico09-Consultas.md`](Practico09-Consultas.md) — FAQ del P09.
 - [`Practico08-Decisiones.md`](Practico08-Decisiones.md) — texturas y cielo:
   `ImageData`/`load_image` (flip, RGBA, `unload_image`), módulo `Texture` (4 etapas

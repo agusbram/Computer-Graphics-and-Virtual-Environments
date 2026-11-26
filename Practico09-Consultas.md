@@ -31,11 +31,18 @@ Preguntas frecuentes del **Práctico 09 (iluminación y niebla)**, en el mismo f
 | Ápice del cono | Un vértice **por gajo**, con la normal lateral: un único vértice con normal axial hace que el cono se ilumine como una ojiva. |
 | Blinn-Phong | `H = normalize(L + V)` y `(N·H)^(4·ns)`. Con el × 4 el reflejo queda de tamaño parecido al de Phong. |
 | Niebla exponencial | `f = 1 − e^(−d/V)`: 63 % a `V`, 86 % a `2V`, 95 % a `3V`. Un solo parámetro, sin inicio ni corte. |
-| Visibilidad elegida | `V = 6 km`. El tope es `L/2 ≥ 2,5·V` → `V ≤ ~10 km` con el clipmap de 51,2 km. En el borde: 98,6 %. |
+| Visibilidad elegida | `V = 10 km` desde la Parte 5 (6 km en la Parte 4). El tope es `L/2 ≥ 2,5·V` → `V ≤ ~10 km` con el clipmap de 51,2 km. En el borde: 92,3 %. |
 | Niebla en el cielo | `1 − smoothstep(0, 0.10, d.z)`: total en el horizonte, nada desde 5,7°. Borra la línea del horizonte del P08. |
 | Por qué no la exponencial en el cielo | El cielo no tiene distancia (`d = ∞`): la exponencial lo dejaría **entero** del color de la niebla. Se usa el ángulo de la vista. |
 | `smoothstep(a, b, x)` | `t = clamp((x−a)/(b−a), 0, 1)` y `3t² − 2t³`: de 0 a 1 en forma de S, con pendiente 0 en las puntas (sin franjas). |
 | Niebla y altitud | A la altura `h`, ningún punto del terreno tiene menos niebla que `1 − e^(−h/V)`: la distancia es en el espacio. |
+| Corrección gamma | Cuentas en **lineal**: `a_lineal()` a cada color que entra, `a_srgb()` al resultado, al final (después de la niebla). `γ = 2,2`. |
+| Ida y vuelta | Las imágenes están en sRGB, las cuentas necesitan lineal y el monitor espera sRGB (eleva a 2,2): `a_lineal` al entrar, `a_srgb` al salir. Falta la entrada → lavado; falta la salida → casi negro. |
+| Qué se convierte | Lo que es un **color** elegido por cómo se ve: texturas, cubemap, degradé, `kd`, color de la niebla. **No:** sol, ambiente, `ks` (proporciones de luz) ni las normales como color (un dato). |
+| El cielo con la corrección | `a_srgb(a_lineal(c)) = c`: se ve **igual**. Si sale lavado, falta `a_lineal` en el cubemap. |
+| Niebla con la corrección | Se mezcla en lineal: con la misma `V` se ve más **espesa** (10 % de niebla corre el pasto un 18 % en pantalla). Por eso `V` pasó a 10 km. |
+| Ambiente con la corrección | `0,1` y sol `0,9`: la sombra se ve al `0,1^(1/2,2)` = 35 % (con 0,3 sería 58 %). |
+| Shader, no hardware | `pow` en el shader: se apaga con `C`. Las texturas siguen en `GL_RGBA8`; con `GL_SRGB8_ALPHA8` además, se convertiría **dos veces**. |
 
 ---
 
@@ -358,4 +365,107 @@ En nuestra línea, `x = d.z` (el seno de la elevación), `a = 0` (el horizonte) 
 2. **`V` como función de la altitud**, lo que sugiere la guía: por ejemplo, `V = V₀ + k·h`. Así, al subir, la niebla se abre y el terreno se sigue viendo. El costo es que el borde del clipmap puede quedar a la vista cuando `V` crece (habría que limitarla a ~10 km de todos modos).
 
 Se decide después de la Parte 5: con la gamma, la niebla se ve distinta y hay que volver a mirarla (lo advierte la guía).
+
+> **Actualización (Parte 5):** se tomó el camino 1. Con la corrección gamma la niebla se veía todavía más espesa (consulta 16), y `V` pasó a **10 km** (decisión 19). Con la corrección activa queda el 86 % del contraste a 200 m, el 64 % a 1,2 km y el 42 % a 3,2 km. `V` según la altitud sigue sin hacer falta.
+
+---
+
+# Consultas de la Parte 5 (corrección gamma)
+
+## 15. Si la imagen ya se veía bien, ¿para qué hace falta la corrección gamma?
+
+**Se veía bien porque los colores se eligieron a ojo, pero las cuentas de la luz estaban mal.** Una textura o un color elegido mirando la pantalla está en **sRGB**: no guarda la luz, sino la luz "comprimida" con `v^(1/2,2)`, porque así la pantalla, que eleva a 2,2, la muestra bien. Mientras el shader copiaba el color a la pantalla (P08), no había problema: entraba sRGB y salía sRGB.
+
+**El problema aparece al hacer cuentas.** La luz se suma y se multiplica: `kd · luz · cos θ`. Eso supone que el número es **proporcional** a la luz. Con valores sRGB no lo es:
+
+| | Lo que se calcula | Lo que se escribe | Lo que muestra la pantalla |
+|---|---|---|---|
+| Sin corrección | `N·L = 0,5`: la mitad de la luz | 0,5 | `0,5^2,2` = **0,22** (menos de un cuarto) |
+| Con corrección | la mitad de la luz, en lineal | `0,5^(1/2,2)` = 0,73 | `0,73^2,2` = **0,5** (la mitad) |
+
+**Lo que se nota:** sin corrección, la luz se cae demasiado rápido hacia la sombra (el paso de la cara iluminada a la oscura es brusco) y la sombra queda muy oscura. Con corrección, la transición es **gradual**, como en la realidad. Lo que mira de frente al sol no cambia: con la luz sumando 1, llega a `kd` con o sin corrección.
+
+**La regla:** entrar en lineal (`a_lineal`) con cada **color**, hacer las cuentas, salir en sRGB (`a_srgb`) al final. Ver `Practico09-Decisiones.md`, Parte 5, la tabla de qué se convierte.
+
+### ¿Por qué se pasa a lineal y después de vuelta a sRGB?
+
+Porque hay **tres partes** que trabajan en escalas distintas, y el color tiene que traducirse al **entrar** a las cuentas y al **salir**:
+
+| Parte | En qué escala trabaja |
+|---|---|
+| **Las imágenes y los colores elegidos a ojo** (texturas, cubemap, `kd`) | **sRGB**: valores "comprimidos", no proporcionales a la luz |
+| **Las cuentas de luz y niebla** (`kd · luz · cos θ`, `mix`) | Necesitan **lineal**: valores proporcionales a la luz |
+| **El monitor** | Recibe un número y muestra luz = número^2,2: **espera sRGB** |
+
+El camino de cada color:
+
+```
+textura (sRGB) --a_lineal--> cuentas en lineal --a_srgb--> monitor (eleva a 2,2) --> luz correcta
+```
+
+- **`a_lineal` al entrar** "descomprime" el color: las cuentas operan sobre luz real.
+- **`a_srgb` al salir** lo vuelve a "comprimir", porque el monitor le va a aplicar `^2,2`. Esa compresión compensa justo la del monitor.
+
+**Ejemplo: el pasto con la mitad de la luz del sol.** El pasto vale 0,30 en pantalla, que es `0,30^2,2` = **7 %** de luz real. Con la mitad de la luz, tendría que verse con **3,5 %**:
+
+| Qué se hace | Se escribe | El monitor muestra | Resultado |
+|---|---|---|---|
+| **Las dos conversiones** (lo correcto) | 0,07 × 0,5 = 0,035 → `a_srgb` → 0,22 | 0,22^2,2 = **3,5 %** | Justo la mitad ✔ |
+| Ninguna conversión (hasta la Parte 4) | 0,30 × 0,5 = 0,15 | 0,15^2,2 = **1,5 %** | Menos de un cuarto: la sombra cae de golpe |
+| Solo `a_lineal` (falta la salida) | 0,035 | 0,035^2,2 = **0,06 %** | Casi negro |
+| Solo `a_srgb` (falta la entrada) | 0,15 → `a_srgb` → 0,42 | 0,42^2,2 = **15 %** | El doble de luz: lavado |
+
+Solo con las **dos** conversiones el resultado es el que dicen las cuentas.
+
+**Por qué el cielo se ve igual con y sin corrección.** Las dos funciones son **inversas**: `a_lineal` eleva a 2,2 y `a_srgb` a 1/2,2. Si en el medio no hay ninguna cuenta, como en el cielo, que no se ilumina, se cancelan: `a_srgb(a_lineal(c)) = c`. Es la verificación de la guía: si el cielo sale lavado, falta la conversión de **entrada** (es el caso "solo `a_srgb`" de la tabla; ver la imagen 17 de `Practico09-Decisiones.md`).
+
+**Por qué las imágenes vienen en sRGB y no en lineal.** Con 8 bits hay 256 niveles por canal. El ojo distingue mucho mejor las diferencias en los **oscuros** que en los claros, y sRGB dedica más niveles a los oscuros. Además, el monitor ya espera esa escala: mientras no haya cuentas (como en el P08), el color se copia tal cual y se ve bien.
+
+## 16. ¿Por qué, con la misma visibilidad, la niebla se ve más espesa con la corrección?
+
+**Porque la mezcla ahora se hace en lineal, y la niebla es un color claro.** `mix(C, niebla, f)` es la misma fórmula, pero los números son otros. Ejemplo con el pasto en 0,30 y la niebla en 0,82 (sRGB):
+
+| Niebla `f` | Sin corrección (mezcla en sRGB) | Con corrección (mezcla en lineal) |
+|---|---|---|
+| 10 % | el pasto se corre un **10 %** hacia la niebla | se corre un **18 %** |
+| 30 % | 30 % | 43 % |
+| 50 % | 50 % | 63 % |
+
+En lineal, el pasto vale `0,30^2,2` = 0,07 y la niebla, `0,82^2,2` = 0,65: la niebla tiene **9 veces** más luz. Un poco de niebla suma mucha luz a un color oscuro. Es lo que pasa de verdad: el aire entre el ojo y el objeto **agrega** la luz que dispersa (por eso las montañas lejanas se ven azuladas y claras, nunca más oscuras).
+
+**Por eso V pasó de 6 a 10 km (decisión 19).** Con 6 km y la corrección, a 1,2 km de altura quedaba el 53 % del contraste del terreno (en la Parte 4, el 79 %). Con 10 km queda el 64 %. Más no se puede abrir: 10 km es el tope del clipmap (`L/2 ≥ 2,5·V`), y en el borde queda justo el 92 % que pide la guía.
+
+## 17. ¿Por qué la corrección se hace en el shader y no con las texturas sRGB y el framebuffer sRGB?
+
+Las dos formas son válidas (lo dice la guía). Se eligió el **shader** (decisión 11) porque:
+
+1. **Se puede apagar con una tecla** (`C`): la guía pide comparar la misma vista con y sin la corrección. Por hardware habría que volver a crear las texturas con otro formato.
+2. **No depende de la ventana:** `GL_FRAMEBUFFER_SRGB` necesita que el framebuffer de la ventana lo admita (`GLFW_SRGB_CAPABLE`, el controlador de video).
+3. **Se ve en el código** qué color se convierte y dónde.
+
+**Lo que hay que cuidar: no convertir dos veces.** Las texturas siguen en `GL_RGBA8` (no `GL_SRGB8_ALPHA8`) y no se activa `GL_FRAMEBUFFER_SRGB`. Si una textura sRGB pasara además por `a_lineal`, se elevaría a 2,2 dos veces: todo muy oscuro. Si se activara el framebuffer sRGB además de `a_srgb`, todo lavado.
+
+**Lo que se pierde: el filtrado en lineal.** Con texturas sRGB, la GPU convierte cada texel **antes** de promediarlo (mipmaps, filtro bilineal). Con `pow` en el shader, el promedio se hace sobre valores sRGB y después se convierte. Ejemplo extremo, un texel negro y uno blanco: el promedio sRGB es 0,5, que en lineal es 0,22; el correcto es 0,5 en lineal (0,73 en sRGB). Los bordes muy contrastados, vistos de lejos, quedan un poco más oscuros. En el pasto, en el cielo y en el camuflaje, los texels vecinos tienen colores parecidos y no se nota.
+
+## 18. ¿Por qué el color de la niebla se pasa a lineal en la CPU y los demás colores en el shader? ¿Y el color de borrado?
+
+**La niebla, en la CPU, porque es un solo color para toda la escena.** Se calcula una vez (promedio del horizonte del cubemap) y es el mismo en todos los fragmentos. Convertirlo en el shader sería repetir el mismo `pow` millones de veces por cuadro. Es lo que sugiere la guía: `glm::pow(color, glm::vec3(2.2f))` antes de enviarlo. Como depende de la tecla `C`, `main` lo convierte en cada cuadro solo si la corrección está activa.
+
+**Las texturas, en el shader, porque cambian en cada fragmento:** cada uno lee otro texel. El `kd` del avión podría convertirse en la CPU (es uno por pieza, como sugiere la guía), pero en el shader queda junto a la textura que lo multiplica y la tecla `C` lo apaga sin tocar la CPU.
+
+**El color de borrado (`glClearColor`) no se convierte.** `glClear` escribe ese color **directo** en la pantalla, sin pasar por ningún shader (ni por `a_srgb`). Ya está en sRGB, que es lo que la pantalla espera. Si se usara el de la niebla en lineal, saldría más oscuro. (Casi no se ve: el fondo tapa toda la pantalla.)
+
+## 19. ¿Por qué se bajó la luz ambiente a 0,1? ¿No queda todo más oscuro?
+
+**No: la luz ambiente solo decide qué tan oscura es la sombra.** Lo que mira al sol recibe además la difusa, y con el sol en 0,9 recibe más que antes.
+
+| | Cara en sombra (solo ambiente) | Terreno plano (sol a 30°, `N·L` = 0,5) |
+|---|---|---|
+| Parte 4: sin corrección, 0,3 / 0,7 | 30 % de la textura | 65 % |
+| Corrección con 0,3 / 0,7 | **58 %** | 82 % |
+| **Corrección con 0,1 / 0,9** (decisión 18) | **35 %** | **76 %** |
+
+- Con la corrección y 0,3 de ambiente, la sombra se ve al 58 %: es casi tan clara como lo iluminado y **el relieve se aplana** (lo advierte la guía).
+- Con 0,1 la sombra vuelve a estar cerca del 30 % de antes, pero lo iluminado queda **más claro** que en la Parte 4 (76 % contra 65 %): el terreno se parece más al del Práctico 08 (consulta 3).
+- Siguen sumando 1: una cara de frente al sol llega justo a `kd` y no se quema.
 

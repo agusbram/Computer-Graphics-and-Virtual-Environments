@@ -42,6 +42,14 @@
 //     la ELEVACIÓN. En el horizonte (elevación 0) f = 1 y el cielo vale lo
 //     mismo que el suelo lejano: desaparece la línea recta que se veía en el
 //     Práctico 08 (Practico08-Consultas.md, pregunta 22).
+//
+// Práctico 09 (Parte 5): CORRECCIÓN GAMMA. Los dos colores del fondo entran en
+// LINEAL (a_lineal) y el resultado sale en sRGB (a_srgb):
+//   - el CIELO no se ilumina, pero pasa igual por la conversión final: si no se
+//     lo pasara antes a lineal, saldría más claro y desaturado ("lavado"). Con
+//     las dos conversiones, a_srgb(a_lineal(c)) = c: el cielo se ve IGUAL con
+//     y sin la corrección (es una verificación de la guía);
+//   - el SUELO CONTINUADO: la textura del pasto a lineal, igual que la malla.
 // -----------------------------------------------------------------------------
 
 // ENTRADA (in): la dirección de este píxel, interpolada desde fondo.vs (en el
@@ -65,8 +73,9 @@ uniform int   uNieblaCielo;      // P09, Parte 4: 1 = el cielo se funde con la n
                                  // horizonte; 0 = no, como el P08 (tecla J, para comparar)
 
 // La luz (uSolDir, uSolColor, uAmbiente, uModoSuelo, iluminar_suelo), la niebla
-// (uNieblaColor, uVisibilidad, aplicar_niebla) y la posición del ojo en mundo
-// (uOjo) vienen de iluminacion.glsl.
+// (uNieblaColor, uVisibilidad, aplicar_niebla), la posición del ojo en mundo
+// (uOjo) y la corrección gamma (uGamma, a_lineal, a_srgb; Parte 5) vienen de
+// iluminacion.glsl.
 
 // Dirección de NUESTRA escena (Z arriba) -> convención del cubemap (Y arriba).
 // (x, y, z) -> (x, z, -y) es una ROTACIÓN de -90° alrededor del eje X: lleva
@@ -100,6 +109,10 @@ void main()
     float s          = clamp(elevacion / radians(90.0), 0.0, 1.0);
     vec3 cielo_degr  = texture(uDegrade, s).rgb;                        // color del degradé
     vec3 cielo       = (uModoCielo == 1) ? cielo_degr : cielo_cubo;     // el cielo elegido (tecla K)
+    // P09 (Parte 5): el cielo elegido, a LINEAL (el cubemap es una foto y el
+    // degradé se eligió mirando la pantalla: los dos están en sRGB). Así la
+    // mezcla con la niebla de abajo se hace en lineal, como en el resto.
+    cielo = a_lineal(cielo);
 
     // P09 (Parte 4): NIEBLA EN EL CIELO, solo en los primeros grados sobre el
     // horizonte. Con d unitaria, d.z es el SENO de la elevación (la guía dice
@@ -125,7 +138,8 @@ void main()
     // MISMA regla que la malla: posición en el mundo / tamaño de la tesela. Hacia
     // el horizonte las (u, v) cambian muy rápido entre píxeles vecinos y el
     // mipmap usa niveles cada vez más chicos: queda el color promedio del pasto.
-    vec3 kd_suelo = texture(uTexturaSuelo, xy / uTamTesela).rgb;   // color del pasto en ese punto (= kd)
+    // P09 (Parte 5): a LINEAL, igual que en la malla (terreno.fs).
+    vec3 kd_suelo = a_lineal(texture(uTexturaSuelo, xy / uTamTesela).rgb);   // color del pasto (= kd), lineal
     // El mismo punto del suelo, pero en MUNDO (origen flotante), para el código
     // común: P = ojo + t·d. Su distancia al ojo es t (d es unitaria), la misma
     // que se usaba en el Práctico 08. Su altura es uOjo.z - uAlturaOjo (el plano).
@@ -148,7 +162,8 @@ void main()
     // debajo = el rayo baja (mira por debajo del horizonte) y el ojo está por
     // encima del suelo (si no, el plano nunca se cruzaría hacia abajo).
     bool debajo = (d.z < 0.0) && (uAlturaOjo > 0.0);
-    vec3 color  = (uSueloContinuado == 1 && debajo) ? suelo : cielo;   // color final
+    vec3 color  = (uSueloContinuado == 1 && debajo) ? suelo : cielo;   // color final (lineal)
 
-    FragColor = vec4(color, 1.0);
+    // P09 (Parte 5): AL FINAL, de vuelta a sRGB para la pantalla.
+    FragColor = vec4(a_srgb(color), 1.0);
 }

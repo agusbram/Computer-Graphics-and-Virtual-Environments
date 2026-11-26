@@ -1,8 +1,22 @@
 // -----------------------------------------------------------------------------
 // main.cpp — la aplicación (Prácticos 04 a 09)
 //
+// Lo nuevo del Práctico 09, Parte 5 — la CORRECCIÓN GAMMA:
+//   1. Los shaders hacen las cuentas de la luz y de la niebla en LINEAL: pasan
+//      cada color a lineal al entrar (a_lineal) y el resultado a sRGB al salir
+//      (a_srgb), con pow 2,2 en el código común (decisión 11).
+//   2. El color de la niebla se calcula en la CPU (promedio del horizonte del
+//      cubemap, en sRGB): se pasa a lineal ACÁ, una vez por cuadro, antes de
+//      enviarlo (luz.niebla_color).
+//   3. Tecla C (verificación): corrección activa / apagada, para comparar la
+//      misma vista con y sin ella.
+//   4. Reajustes con la corrección activa (lo pide la guía): ambiente 0,1 y
+//      sol 0,9 (decisión 18; antes 0,3 y 0,7) y visibilidad 10 km (decisión
+//      19; antes 6 km).
+//
 // Lo nuevo del Práctico 09, Parte 4 — la NIEBLA EXPONENCIAL:
-//   1. f = 1 - e^(-d/V) con una VISIBILIDAD V fija (kVisibilidad = 6 km), en
+//   1. f = 1 - e^(-d/V) con una VISIBILIDAD V fija (kVisibilidad: 6 km; desde
+//      la Parte 5, con la gamma, 10 km), en
 //      lugar de la lineal (inicio y fin) de los Prácticos 07 y 08. La aplica el
 //      código común al terreno, al suelo continuado y al avión.
 //   2. El CIELO se funde con la niebla en los primeros 5,7° sobre el horizonte
@@ -81,7 +95,7 @@
 
 #include <algorithm>        // std::min, std::max, std::clamp (elevación del sol, P09)
 #include <array>            // std::array (las 6 caras del cubemap)
-#include <cmath>            // std::atan, std::floor, std::round, std::exp (niebla, P09)
+#include <cmath>            // std::atan, std::floor, std::round, std::exp (niebla, P09), std::pow (gamma, P09)
 #include <cstdlib>          // EXIT_FAILURE, EXIT_SUCCESS
 #include <exception>        // std::exception
 #include <iostream>         // std::cout, std::endl, std::cerr
@@ -180,6 +194,7 @@ struct AppContext {
     bool  matriz_normal = true;     // X: true = matriz normal G (lo correcto); false = M (el error)
     bool  blinn_phong   = false;    // R: false = Phong (R·V), true = Blinn-Phong (N·H, ns x 4)
     int   modo_niebla   = 0;        // J: 0 color del horizonte, 1 gris, 2 cielo sin niebla (Parte 4)
+    bool  gamma         = true;     // C: corrección gamma activa (lo correcto) / apagada (Parte 5)
 };
 
 // Práctico 08: ubicaciones de los uniforms "por pieza" de un programa. Se buscan
@@ -389,19 +404,31 @@ int main()
 
             // P09 (Parte 4): NIEBLA EXPONENCIAL, f = 1 - e^(-d/V). La
             // VISIBILIDAD V es la distancia a la que la niebla llega al 63 %
-            // (a 2V, 86 %; a 3V, 95 %). Decisión 12: V FIJA = 600 u = 6 km.
+            // (a 2V, 86 %; a 3V, 95 %). Decisión 12: V FIJA.
             //   - Tope por el tamaño del terreno: para que la niebla tape el
             //     borde del clipmap (que la guía pide al 92 %: L/2 >= 2,5·V),
             //     con L/2 = 2560 u (25,6 km) hace falta V <= 1024 u (~10 km).
-            //     Con 6 km, en el borde f = 1 - e^(-2560/600) = 98,6 %.
-            //   - Es un día con algo de bruma: el 95 % (casi no se distingue
-            //     nada) está a 3V = 18 km. La lineal del P08 llegaba al 100 % a
-            //     18 km pero empezaba recién a 3 km.
-            //   - Con la gamma (Parte 5) hay que volver a mirarla.
+            //   - Parte 4 (sin gamma): 600 u = 6 km; en el borde, 98,6 %.
+            //   - Parte 5 (decisión 19): con la corrección gamma la niebla se
+            //     mezcla en LINEAL y, con la misma V, se ve bastante más
+            //     espesa: un poco de un color claro (la niebla) en lineal
+            //     aclara mucho un color oscuro (el pasto) en la pantalla. Se
+            //     reajustó con la corrección activa a 1000 u = 10 km, el MÁXIMO
+            //     que permite el clipmap: en el borde, 1 - e^(-2560/1000) =
+            //     92,3 % (justo lo que pide la guía; con la mezcla en lineal
+            //     se percibe todavía más). Es la que deja el contraste del
+            //     terreno más parecido al de la Parte 4 (medido a 0,2, 1,2 y
+            //     3,2 km de altura; ver Practico09-Decisiones.md, Parte 5).
             // Su COLOR es el del horizonte del cielo (lo calcula el Skybox al
             // cargar el cubemap, más abajo); con la tecla J, un gris.
-            const float     kVisibilidad = 600.0f;               // u de escena (6 km)
+            const float     kVisibilidad = 1000.0f;              // u de escena (10 km)
             const glm::vec3 kNieblaGris  = glm::vec3(0.5f);      // tecla J: un color que NO es el del cielo
+
+            // P09 (Parte 5): el exponente de la corrección gamma, para pasar a
+            // lineal el color de la niebla en la CPU. Tiene que ser el MISMO
+            // valor que GAMMA en iluminacion.glsl (los shaders convierten el
+            // resto de los colores con ese).
+            const float     kGamma       = 2.2f;
 
             // --- Escena: la aeronave (Práctico 04) -------------------------
             Aircraft avion;
@@ -542,22 +569,30 @@ int main()
                           << borde * kMetrosPorUnidad << " m): "
                           << std::round((1.0f - std::exp(-borde / kVisibilidad)) * 1000.0f) / 10.0f
                           << " %" << std::endl;
+                // P09 (Parte 5): la corrección gamma, y qué queda en lineal.
+                std::cout << "gamma    : " << kGamma << " en el shader (a_lineal / a_srgb); "
+                          << "niebla en lineal = (" << std::pow(h.r, kGamma) << ", "
+                          << std::pow(h.g, kGamma) << ", " << std::pow(h.b, kGamma)
+                          << "); C la apaga" << std::endl;
             }
 
-            // --- Luz y niebla de la escena (Práctico 09, Partes 1 a 4) ------
+            // --- Luz y niebla de la escena (Práctico 09, Partes 1 a 5) ------
             // UN SOLO LUGAR del lado de la CPU para los parámetros de la luz y
             // de la niebla: esta instancia. Desde acá se envían, en cada
             // cuadro, a los tres programas. El color del sol y el ambiente
-            // quedan en 0,7 y 0,3 (los valores por omisión, los de la guía:
-            // suman 1, así una cara que mira de frente al sol llega justo a kd
-            // y no se "quema" en blanco).
+            // son los valores por omisión de Iluminacion: 0,9 y 0,1 desde la
+            // Parte 5 (decisión 18; hasta la Parte 4, 0,7 y 0,3, los de la
+            // guía). Suman 1, así una cara que mira de frente al sol llega
+            // justo a kd y no se "quema" en blanco.
             // Lo que cambia con TECLAS NO se carga acá: se asigna en el bucle,
             // en cada cuadro, antes de enviar `luz` (un solo lugar que lo
             // escribe; el primer cuadro ya pasa por ahí):
             //   sol_dir      -> teclas O/P/H (por omisión, el sol PINTADO);
             //   modo_suelo   -> tecla B;
-            //   niebla_color -> teclas K (cielo activo) y J (gris);
-            //   visibilidad  -> tecla N (niebla on/off).
+            //   niebla_color -> teclas K (cielo activo) y J (gris); en lineal
+            //                   si la gamma está activa (Parte 5);
+            //   visibilidad  -> tecla N (niebla on/off);
+            //   gamma        -> tecla C (corrección gamma, Parte 5).
             // (Por eso no hay asignaciones acá: todos los campos de `luz` que
             // no son los valores por omisión dependen de alguna tecla.)
             Iluminacion luz;
@@ -588,7 +623,8 @@ int main()
                       << "O/P=bajar/subir el sol, H=sol pintado del cubemap, "
                       << "V=normales del avion como color, X=matriz normal / M, "
                       << "R=Phong / Blinn-Phong, "
-                      << "J=niebla (horizonte / gris / cielo sin niebla)" << std::endl;
+                      << "J=niebla (horizonte / gris / cielo sin niebla), "
+                      << "C=correccion gamma" << std::endl;
             {
                 GLint muestras = 0;
                 glGetIntegerv(GL_SAMPLES, &muestras);
@@ -809,12 +845,29 @@ int main()
                 // la guía: con un color que no es el del cielo, el terreno
                 // lejano y el cielo dejan de coincidir y aparece una franja
                 // sobre el horizonte; con el del cielo tiene que desaparecer.
-                luz.niebla_color = (ctx.modo_niebla == 1) ? kNieblaGris : fondo.color_horizonte();
+                // Los dos colores están en sRGB: el horizonte es un promedio de
+                // píxeles del cubemap y el gris se eligió a ojo.
+                const glm::vec3 niebla_srgb =
+                    (ctx.modo_niebla == 1) ? kNieblaGris : fondo.color_horizonte();
+                // P09 (Parte 5): CORRECCIÓN GAMMA (tecla C). Los shaders
+                // mezclan la niebla en LINEAL (aplicar_niebla y el cielo de
+                // fondo.fs usan uNieblaColor tal cual), así que con la
+                // corrección activa el color se pasa a lineal ACÁ, una vez por
+                // cuadro (en lugar de un pow por fragmento): c^2,2. Si no se
+                // convirtiera, el terreno lejano llegaría a un color más claro
+                // que el cielo y volvería la franja sobre el horizonte (es
+                // una verificación de la guía).
+                luz.gamma        = ctx.gamma ? 1 : 0;
+                luz.niebla_color = ctx.gamma ? glm::pow(niebla_srgb, glm::vec3(kGamma))
+                                             : niebla_srgb;
                 // visibilidad = 0 es la señal de "niebla apagada" (tecla N): el
                 // código común no aplica niebla si uVisibilidad <= 0 (y el
                 // fondo no mezcla el cielo).
                 luz.visibilidad = ctx.niebla ? kVisibilidad : 0.0f;
-                const glm::vec3 color_niebla = luz.niebla_color;
+                // El color de BORRADO va en sRGB (el de antes de convertir):
+                // glClear lo escribe DIRECTO en la pantalla, sin pasar por
+                // ningún shader (y sin a_srgb).
+                const glm::vec3 color_niebla = niebla_srgb;
 
                 // P09 (Parte 2): el SOL. Misma orientación horizontal (acimut)
                 // que el sol pintado del cubemap, a la elevación elegida con
@@ -1071,6 +1124,19 @@ void key_callback(GLFWwindow* window, int key, [[maybe_unused]] int scancode,
                                 "GRIS (aparece una franja sobre el horizonte)",
                                 "cielo SIN niebla, como el P08 (vuelve la linea del horizonte)"};
         std::cout << "[J] niebla: " << modos[ctx->modo_niebla] << std::endl;
+    }
+
+    // --- Práctico 09 (Parte 5): verificación de la corrección gamma ----------
+    if (key == GLFW_KEY_C) {
+        // La guía pide poder compararla durante la ejecución. Con la corrección:
+        // el CIELO tiene que verse IGUAL, la sombra llega más GRADUAL y la cara
+        // en sombra queda más clara; la diferencia se nota más en el avión (con
+        // brillo) que en el terreno (la textura la disimula).
+        ctx->gamma = !ctx->gamma;
+        std::cout << "[C] correccion gamma: " << (ctx->gamma
+                     ? "ACTIVA (cuentas en lineal, salida en sRGB)"
+                     : "APAGADA (cuentas sobre valores sRGB, como hasta la Parte 4)")
+                  << std::endl;
     }
 }
 

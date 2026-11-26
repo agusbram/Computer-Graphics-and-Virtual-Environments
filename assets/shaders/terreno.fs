@@ -21,6 +21,11 @@
 // MODELO de Phong, que es la fórmula de iluminar()). Con la luz calculada por
 // vértice (sombreado de Gouraud) el resultado sería parecido en el terreno,
 // porque sus triángulos son chicos, pero la guía propone hacerlo por fragmento.
+//
+// Práctico 09 (Parte 5): CORRECCIÓN GAMMA. El color del pasto (y el color plano
+// de depuración) entra a la luz pasado a LINEAL con a_lineal(), y el resultado
+// final (después de la niebla) sale a sRGB con a_srgb(). Las dos funciones son
+// del código común; con la tecla C (uGamma = 0) no hacen nada.
 // -----------------------------------------------------------------------------
 
 // ENTRADAS (in): las salidas de terreno.vs, INTERPOLADAS por la GPU para este
@@ -57,15 +62,23 @@ void main()
     // elige: el filtrado con mipmaps necesita comparar las coordenadas de
     // fragmentos vecinos, y eso no está definido si la lectura queda adentro de
     // un if que algunos fragmentos toman y otros no.
-    vec3 texel = texture(uTextura, vTexCoord).rgb;              // color del pasto en este punto
-    vec3 kd    = (uUsarTextura == 1) ? texel : uColor;          // P09: el color pasa a ser kd
+    vec3 texel = texture(uTextura, vTexCoord).rgb;              // color del pasto en este punto (sRGB)
+    // P09: el color pasa a ser kd. Parte 5: en LINEAL. La textura es una foto
+    // (sRGB) y el color plano de la tecla L se eligió mirando la pantalla
+    // (también sRGB): los dos se pasan a lineal antes de entrar en las cuentas.
+    vec3 kd    = a_lineal((uUsarTextura == 1) ? texel : uColor);
 
     // LUZ: la MISMA función y el MISMO material que el suelo continuado
     // (iluminar_suelo, código común: kd = textura, ks = 0). La tecla B cambia
     // el modo (con luz / sin luz / normal constante) en los dos a la vez.
+    // Las cuentas se hacen en LINEAL (Parte 5).
     vec3 color = iluminar_suelo(vPosMundo, N, kd);
 
     // NIEBLA, DESPUÉS de la luz: la niebla es el aire entre el punto y el ojo,
-    // no depende del sol (la niebla no se ilumina).
-    FragColor = vec4(aplicar_niebla(color, vPosMundo), 1.0);
+    // no depende del sol (la niebla no se ilumina). También en lineal: el
+    // color de la niebla ya llega convertido desde la CPU.
+    color = aplicar_niebla(color, vPosMundo);
+
+    // Parte 5: AL FINAL, de vuelta a sRGB para la pantalla.
+    FragColor = vec4(a_srgb(color), 1.0);
 }

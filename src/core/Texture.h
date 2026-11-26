@@ -105,8 +105,9 @@ public:
     //     trampa de los mipmaps" de la guía, a propósito, para poder verla
     //     (OpenGL no da error; los niveles quedan con contenido indefinido).
     //   srgb = true usa el formato GL_SRGB8_ALPHA8 (la GPU convierte a lineal al
-    //     leer). Queda preparado para la corrección gamma del Práctico 09; en el
-    //     Práctico 08 todas las texturas usan GL_RGBA8 (srgb = false).
+    //     leer). Quedó preparado para la corrección gamma del Práctico 09, pero
+    //     NO se usa: todas las texturas siguen en GL_RGBA8 (srgb = false),
+    //     porque la conversión la hacen los shaders (ver más abajo).
     //
     // GL_RGBA8 vs GL_SRGB8_ALPHA8 (el "formato interno": cómo se guarda en la
     // GPU). Los dos guardan 4 canales de 8 bits y ocupan lo mismo; cambia cómo
@@ -135,10 +136,15 @@ public:
     // sRGB: el byte que entra es el que sale. Con GL_SRGB8_ALPHA8 y nada más,
     // todo se vería mucho más oscuro (el gris 128 saldría como 55).
     //
-    // En el Práctico 09 hay que cerrar el circuito: entrar en lineal (srgb =
-    // true), calcular la luz en lineal y SALIR en sRGB (glEnable(
-    // GL_FRAMEBUFFER_SRGB) o pow(color, 1/2.2) al final del shader). También
-    // el kd de las piezas y el color de la niebla se pasan a lineal.
+    // En el Práctico 09 hay que cerrar el circuito: entrar en lineal, calcular
+    // la luz en lineal y SALIR en sRGB. Hay dos caminos: por hardware (srgb =
+    // true + glEnable(GL_FRAMEBUFFER_SRGB)) o en el shader (pow 2,2 al leer y
+    // pow 1/2,2 al final). P09, Parte 5 (decisión 11): EN EL SHADER, con
+    // a_lineal() / a_srgb() de iluminacion.glsl, para poder apagarla con una
+    // tecla (C). Por eso las texturas quedan en GL_RGBA8: con GL_SRGB8_ALPHA8
+    // ADEMÁS de a_lineal(), el color se pasaría a lineal DOS veces (todo
+    // oscuro). También el kd de las piezas y el color de la niebla se pasan a
+    // lineal (en el shader y en la CPU, respectivamente).
     // OJO: solo las texturas de COLOR van en sRGB. Las de DATOS (el normal map
     // chapa_normal_gl.jpg) van en GL_RGBA8: cada byte es una dirección, no un
     // color, y la conversión gamma la deformaría.

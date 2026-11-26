@@ -27,8 +27,8 @@ Mejorar la apariencia de la escena con **iluminación** y **niebla**:
 | 2 | El terreno iluminado por el sol | ✔ hecha (22-nov) |
 | 3 | La aeronave iluminada (material, matriz normal) | ✔ hecha (23-nov) |
 | 4 | Niebla exponencial (también en el avión y el cielo) | ✔ hecha (25-nov) |
-| 5 | Corrección gamma | pendiente |
-| Opcionales | halo del sol → día/noche → curvatura de la Tierra | después de la Parte 5 |
+| 5 | Corrección gamma (y reajuste de la luz y la niebla) | ✔ hecha (25-nov) |
+| Opcionales | halo del sol → día/noche → curvatura de la Tierra | siguen |
 
 La **presentación de avance** es el viernes 27 de noviembre. El objetivo es llegar con las Partes 1 a 5.
 
@@ -49,7 +49,7 @@ Antes de escribir código se respondieron estas preguntas de diseño. Las de la 
 | 7 | Material del terreno | **`ks = 0`** (también en el suelo continuado). | Con brillo especular el pasto se ve mojado o de plástico. |
 | 8 | Matriz normal | La del avión se calcula **en la CPU, por pieza** (`mat3`). **El terreno no la usa.** | La matriz de modelo del terreno es solo una traslación, así que la matriz normal es la identidad. |
 | 9 | Normales del terreno | Se hacen **las dos** correcciones: el **borde × 2** y la **normal del nivel grueso** mezclada con el mismo α del morph. | Con luz, las dos se notarían en los bordes de los anillos. *(Al implementarla, en el clipmap el borde se resolvió con una grilla con **margen**, que da diferencias centrales exactas; el × 2 quedó en `generar_malla_terreno`. Ver la Parte 2.)* |
-| 10 | El sol | Por omisión, el **sol pintado** del cubemap (~30° de elevación). Color 0,7 y ambiente 0,3. Teclas para subir y bajar el sol y para volver al pintado. | La luz tiene que venir de donde se ve el sol. 0,7 + 0,3 = 1, así no hay zonas quemadas. |
+| 10 | El sol | Por omisión, el **sol pintado** del cubemap (~30° de elevación). Color 0,7 y ambiente 0,3. Teclas para subir y bajar el sol y para volver al pintado. | La luz tiene que venir de donde se ve el sol. 0,7 + 0,3 = 1, así no hay zonas quemadas. *(Con la gamma pasaron a 0,9 y 0,1: decisión 18.)* |
 | 11 | Corrección gamma | **En el shader** (`pow 2,2`), con un `uniform` y una tecla. | Prenderla y apagarla para comparar es trivial. Por hardware habría que volver a crear las texturas. |
 | 12 | Visibilidad de la niebla | **V fija**, con `V ≤ ~10 km` porque `L/2 = 25,6 km`. Que dependa de la altitud **solo si** al subir el terreno se pierde demasiado pronto. | Es lo más simple, y se ajusta con la gamma activa. |
 | 13 | Teclas | Se reutilizan las que ya hacen lo mismo: **N** sigue siendo niebla sí/no. Se agregan **B**, **V**, **X**, **C**, **O/P**, **H**, **J** y **R** (Blinn-Phong). | Ninguna tecla existente choca con las funciones nuevas. |
@@ -64,6 +64,15 @@ Al revisar el avión antes de implementar aparecieron dos problemas que no estab
 |---|---|---|---|
 | 16 | El ápice del cono es **un solo vértice** con normal axial (0, 1, 0) (decisión del P03). Con luz, la nariz y la cola se verían como una ojiva redondeada. ¿Qué se hace? | **Un ápice por gajo:** N vértices en la punta, cada uno con la normal lateral del medio de su gajo. La coordenada de textura no cambia. | Es la solución habitual. Con 1 anillo, el abanico del ápice es **todo** el lateral, y la normal interpolada se desviaba ~33° a media altura. Se descartaron dejarlo (la luz del cono queda mal) y subir los anillos (achica la zona afectada pero no la elimina). |
 | 17 | Con el avión del P08, la tecla **X** (M en lugar de la matriz normal) no mostraría **ninguna** diferencia. ¿Qué se hace? | La nariz y la cola salen de **un mismo cono unitario** (radio 1, alto 1), estirado con `S(r, h, r)` en su matriz local. | Es el caso que propone la guía ("un cono estirado a lo largo de su eje"). La forma del avión no cambia y quedan 3 mallas en lugar de 4, como las placas, que ya compartían el cubo. Se descartaron dejarlo (X sin efecto visible) y una pieza de prueba aparte (algo que existe solo para la verificación). |
+
+### Decisiones agregadas en la Parte 5 (25-nov)
+
+La guía pide volver a ajustar la luz ambiente y la visibilidad **con la corrección gamma activa**. Se midieron varias opciones sobre el mismo cuadro (ver la Parte 5) y se eligió:
+
+| # | Pregunta | Decisión | Por qué |
+|---|---|---|---|
+| 18 | ¿Qué luz ambiente con la gamma? (reemplaza los valores de la decisión 10) | **Ambiente 0,10 y sol 0,90.** | Con 0,3 la cara en sombra se ve al 58 % de la textura y el relieve se aplana; con 0,1, al 35 %, casi como el 30 % de antes. Siguen sumando 1. |
+| 19 | ¿Qué visibilidad con la gamma? (ajusta la decisión 12) | **V = 10 km**, fija. | Con la mezcla en lineal la niebla se ve más espesa. 10 km es el máximo del clipmap (92,3 % en el borde) y deja el contraste más parecido a la Parte 4. |
 
 ---
 
@@ -589,6 +598,8 @@ Hasta ~17 km la exponencial pone **más** niebla que la lineal (a 10 km, 81 % co
 
 ### La visibilidad elegida: V = 6 km (decisión 12)
 
+> **Actualización (Parte 5):** con la corrección gamma activa, la visibilidad pasó a **10 km** (decisión 19). Lo de esta sección es el razonamiento de la Parte 4, sin gamma.
+
 La guía pide "dejar escritos los valores elegidos y por qué":
 
 | Dato | Valor | Por qué |
@@ -624,7 +635,7 @@ cielo = mix(cielo, uNieblaColor, f_cielo);
 
 ### El color de la niebla
 
-No cambió: desde el P08 es el **color del horizonte** del cubemap, el promedio de la fila central de las cuatro caras laterales, calculado una vez en la CPU (`Skybox::color_horizonte()`): (0,767; 0,818; 0,896). Con el degradé de la tecla `K` es el mismo color, porque el degradé arranca en ese horizonte. La Parte 5 lo va a pasar a lineal.
+No cambió: desde el P08 es el **color del horizonte** del cubemap, el promedio de la fila central de las cuatro caras laterales, calculado una vez en la CPU (`Skybox::color_horizonte()`): (0,767; 0,818; 0,896). Con el degradé de la tecla `K` es el mismo color, porque el degradé arranca en ese horizonte. La Parte 5 lo pasa a lineal en la CPU: (0,559; 0,642; 0,786).
 
 ### La tecla J
 
@@ -717,8 +728,163 @@ make clean && make && ./bin/ogl-app
 
 ---
 
-## Lo que sigue: Parte 5 (corrección gamma)
+## Parte 5 — Corrección gamma
 
-- Las cuentas de la luz y de la niebla en **espacio lineal**: pasar a lineal las texturas, el cubemap, el `kd` de las piezas y el color de la niebla, y convertir el resultado a sRGB al final (decisión 11: **en el shader**, `pow 2,2`, con un uniform y la tecla **C**).
-- Volver a ajustar la luz ambiente (Parte 2) y la visibilidad (esta parte) con la corrección activa.
-- Las normales pintadas como color (`V`) **no** se convierten: son un dato, no un color.
+### Resumen de lo que se agregó (Parte 5)
+
+| Pieza | Qué cambió |
+|---|---|
+| `iluminacion.glsl` | Las dos conversiones de la guía, `a_lineal(c)` = `c^2,2` y `a_srgb(c)` = `c^(1/2,2)`, con `const float GAMMA = 2.2`. Uniform `uGamma` (tecla `C`): con 0, las dos devuelven el color tal cual. |
+| `terreno.fs` | `kd = a_lineal(textura o color plano)` y, al final, `FragColor = a_srgb(color)` (después de la niebla). |
+| `aeronave.fs` | `kd = a_lineal(uMaterial.kd) · a_lineal(textura)` y `a_srgb` al final. `ks` no se convierte. Las normales de la tecla `V` tampoco. |
+| `fondo.fs` | `cielo = a_lineal(cubemap o degradé)`; el pasto del suelo continuado, `a_lineal`; `a_srgb` al final. |
+| `Iluminacion.h/.cpp` | Campo `gamma` → `uGamma` (el informe `[luz]` cuenta 9 uniforms). Valores nuevos: **sol 0,9 y ambiente 0,1** (decisión 18). |
+| `main.cpp` | El color de la niebla se pasa a lineal en la CPU (`glm::pow(c, 2,2)`). **`kVisibilidad = 1000 u`** (10 km, decisión 19). Tecla **C**. Al arrancar informa la gamma y el color de la niebla en lineal. |
+| `Texture.h` | Solo el comentario: las texturas siguen en `GL_RGBA8` a propósito (la conversión la hace el shader). |
+
+### El problema y la solución
+
+Las cuentas de la luz (`kd · luz · cos θ`, sumar ambiente + difusa + especular) y la mezcla de la niebla suman y multiplican **intensidades de luz**. Solo valen si los números son **proporcionales** a la luz (escala lineal). Pero la pantalla no es lineal: un valor `v` se ve con una intensidad ~ `v^2,2`. Por eso las imágenes y los colores elegidos a ojo vienen en **sRGB**, comprimidos con la curva inversa: así se ven bien sin hacer nada.
+
+**El ejemplo de la guía:** una cara con `N·L = 0,5` recibe la mitad de la luz. Sin corrección se escribe 0,5 y la pantalla muestra `0,5^2,2` = **0,22**: menos de la cuarta parte. La sombra llega demasiado rápido. Con la corrección se escribe `0,5^(1/2,2)` = 0,73, y la pantalla muestra 0,5: justo la mitad.
+
+La corrección son **dos pasos en cada fragment shader**: pasar a lineal cada color que **entra** en las cuentas y, al final de todo (después de la niebla), pasar el resultado a sRGB. Las dos funciones están en el código común, como propone la guía:
+
+```glsl
+const float GAMMA = 2.2;
+vec3 a_lineal(vec3 c) { return (uGamma == 1) ? pow(c, vec3(GAMMA)) : c; }         // sRGB -> lineal
+vec3 a_srgb(vec3 c)   { return (uGamma == 1) ? pow(c, vec3(1.0 / GAMMA)) : c; }   // lineal -> sRGB
+```
+
+La única diferencia con la guía es el `uGamma` adentro: con la tecla `C` las dos devuelven el color tal cual. Así los shaders se escriben una vez, con las conversiones, y la tecla no los cambia.
+
+### Qué se convierte y qué no
+
+La regla de la guía: no importa si un valor sale de una imagen o se escribió a mano, sino **qué representa**. Un color elegido por cómo se ve en la pantalla está en sRGB.
+
+| Valor | ¿Se pasa a lineal? | Dónde | Por qué |
+|---|---|---|---|
+| Textura del pasto (malla y suelo continuado) | **Sí** | `terreno.fs`, `fondo.fs` | Es una foto: sRGB. |
+| Color plano por nivel (tecla `L`) | **Sí** | `terreno.fs` | Se eligió mirando la pantalla. |
+| Cubemap y degradé del cielo | **Sí** | `fondo.fs` | El cielo no se ilumina, pero pasa por `a_srgb` al final. Sin `a_lineal` se vería **lavado**. |
+| `kd` de las piezas del avión | **Sí** | `aeronave.fs` | Se eligió en el P04 mirando la pantalla sin corrección. Sin convertirlo, la pieza se vería más clara y desaturada. |
+| Texturas del avión (camuflaje, chapa, prueba UV) | **Sí** | `aeronave.fs` | Son imágenes. |
+| Color de la niebla | **Sí**, en la **CPU** | `main.cpp` | Es un promedio de píxeles del cubemap (sRGB). Se convierte **una vez por cuadro** con `glm::pow`, como sugiere la guía, en lugar de un `pow` por fragmento. Sin convertirlo vuelve la franja sobre el horizonte. |
+| `uSolColor`, `uAmbiente` | No | — | Son **proporciones** de luz que se suman (0,9 + 0,1 = toda la luz): ya son lineales. |
+| `ks` | No | — | Es la fracción de la luz que se refleja como brillo. |
+| Normales como color (tecla `V`) | No | — | Son un **dato** (una dirección codificada como color), no un color. |
+| Color de borrado (`glClearColor`) | No | `main.cpp` | `glClear` lo escribe **directo** en la pantalla, sin pasar por ningún shader ni por `a_srgb`. Se usa el color de la niebla en sRGB. |
+
+`kd · textura` en el avión: como `(a·b)^2,2 = a^2,2 · b^2,2`, da lo mismo convertir cada uno o el producto. En el código se convierte cada uno, porque sin textura (apariencia "colores") solo está `kd`.
+
+### En el shader y no por hardware (decisión 11)
+
+La guía plantea las dos opciones: hacerlo con `pow` en el shader, o con texturas `GL_SRGB8_ALPHA8` (la GPU convierte a lineal al leer) más `glEnable(GL_FRAMEBUFFER_SRGB)` (la GPU convierte a sRGB al escribir). Se eligió **el shader**:
+
+- se puede **apagar con una tecla** (C) para comparar, como pide la verificación;
+- no depende de que la ventana admita un framebuffer sRGB (`GLFW_SRGB_CAPABLE` y el controlador);
+- se ve, en el código, dónde se convierte cada color.
+
+**El cuidado que pide:** las texturas siguen en `GL_RGBA8` (`srgb = false` en `Texture::load_2d` / `load_cubemap`, que ya tenía el parámetro desde el P08) y `GL_FRAMEBUFFER_SRGB` no se activa. Si además se activara el camino por hardware, la conversión se haría **dos veces**.
+
+**Lo que se pierde:** con texturas sRGB la GPU convierte **antes** de filtrar (mipmaps, bilineal) y promedia en lineal. Con `pow` en el shader, el filtrado promedia valores sRGB y recién después se convierte. La diferencia solo se nota en bordes muy contrastados vistos de lejos; en el pasto y en el cielo no se ve. Ver la consulta 17.
+
+### El reajuste de la luz y de la niebla (decisiones 18 y 19)
+
+La guía advierte: *"la luz ambiente de la Parte 2 y la visibilidad de la Parte 4 hay que volver a ajustarlas con la corrección activa"*. Se midió con dos teclas temporales (ya borradas) que cambiaban los valores sobre **el mismo cuadro**.
+
+**La luz ambiente.** Con 0,3 de ambiente, la cara en sombra se ve al `0,3^(1/2,2)` = **58 %** del color de la textura (sin corrección se veía al 30 %): el relieve se aplana. Medida en el terreno, la relación entre la parte en sombra y la iluminada (percentiles 10 y 90 de la luminancia; más bajo = más relieve):
+
+| Configuración | Sombra/luz | Cara en sombra (teórico) |
+|---|---|---|
+| Sin gamma, ambiente 0,3 (Parte 4) | 0,77 | 30 % |
+| Gamma, ambiente 0,30 / sol 0,70 | 0,90 | 58 % |
+| Gamma, ambiente 0,20 / sol 0,80 | 0,86 | 48 % |
+| Gamma, ambiente 0,15 / sol 0,85 | 0,85 | 42 % |
+| **Gamma, ambiente 0,10 / sol 0,90** | **0,84** | **35 %** |
+
+**Decisión 18: ambiente 0,10 y sol 0,90.** La cara en sombra queda casi como antes (35 % contra 30 %) y el relieve recupera lo que se puede. Siguen sumando 1, así que una cara de frente al sol llega justo a `kd` y no se quema. Con la corrección, el relieve nunca vuelve del todo al de la Parte 4: es lo que dice la guía, *"la transición hacia la sombra se vuelve más gradual"*.
+
+De paso, el terreno plano queda **más claro** que en la Parte 4. Con el sol a 30°, `N·L` = 0,5: antes se veía al 65 % de la textura; ahora, al `(0,1 + 0,9·0,5)^(1/2,2)` = **76 %**. Es más parecido al Práctico 08 (consulta 3: "¿por qué con luz el terreno se ve más oscuro?"): la mitad de esa diferencia era la falta de la corrección.
+
+**La visibilidad.** Con la corrección, la niebla se mezcla **en lineal** y, con la misma `V`, se ve **bastante más espesa**. Un poco de un color claro (la niebla), mezclado en lineal, aclara mucho un color oscuro (el pasto) en la pantalla. Con el pasto en 0,30 y la niebla en 0,82 (sRGB), un 10 % de niebla lo corre un **18 %** hacia la niebla en la pantalla; un 30 %, un 43 % (consulta 16). Medido como en la Parte 4 (el detalle del terreno con y sin niebla, mirando hacia abajo), en el **mismo** cuadro:
+
+| Altura sobre el terreno | Parte 4 (sin gamma, V 6 km) | Gamma, V 6 km | Gamma, V 8 km | **Gamma, V 10 km** |
+|---|---|---|---|---|
+| 0,2 km (vuelo normal) | 95 % | 79 % | 83 % | **86 %** |
+| 1,2 km | 79 % | 53 % | 59 % | **64 %** |
+| 3,2 km | 54 % | 29 % | 36 % | **42 %** |
+| Niebla en el borde del clipmap (25,6 km) | 98,6 % | 98,6 % | 95,9 % | **92,3 %** |
+
+**Decisión 19: V = 10 km** (`kVisibilidad = 1000 u`). Es el **máximo** que permite el clipmap (`L/2 ≥ 2,5·V` → `V ≤ 10,2 km`), y es la que deja el terreno más parecido a la Parte 4. En el borde queda justo el 92,3 % que pide la guía; con la mezcla en lineal se percibe todavía más. Se comprobó a 3,2 km que el borde **no se ve** (como en la verificación 2 de la Parte 4). El margen que se había dejado en la Parte 4 ("por qué no 10 km") era para esto.
+
+![Ajuste del ambiente y de la visibilidad con la corrección activa](docs-p09/img/18-parte5-ajuste.jpg)
+
+Arriba, sin niebla: con la corrección y el ambiente en 0,3 el relieve se aplana; con 0,1 vuelve. Abajo, el horizonte a 200 m: con la corrección y 6 km el terreno queda lavado; con 10 km se parece a la Parte 4.
+
+**La altitud, actualizada** (lo que pide anotar la guía, con la corrección activa): con V = 10 km, a **~1 km** sobre el terreno queda el 64 % del contraste y a **~3 km**, el 42 %. A la altura de vuelo (~150–200 m) queda el **86 %**. Visibilidad según la altitud: sigue sin hacer falta (decisión 12).
+
+**Con `C` apagada no se vuelve exactamente a la Parte 4:** el ambiente (0,1) y la visibilidad (10 km) son los nuevos para los dos casos. Sin corrección, las sombras quedan casi negras (al 10 %). Es lo esperable: esos valores son proporciones de luz lineales, y sin la corrección se usan mal.
+
+### Verificación
+
+**1. La misma vista con y sin la corrección (tecla C).** El terreno, el horizonte y el cielo, desde la misma cámara:
+
+![Tecla C: con y sin la corrección](docs-p09/img/15-parte5-tecla-C.jpg)
+
+- **El cielo se ve igual**, como pide la guía: `a_srgb(a_lineal(c)) = c`. Medido sobre la vista del cielo, la diferencia media entre las dos imágenes es **0,04 sobre 255** (fuera del avión).
+- **La transición a la sombra es más gradual** y la cara en sombra, más clara: con la corrección se ve el relieve en la sombra; sin ella (con el ambiente en 0,1) queda casi negra. La **panza del avión** (tercera fila) lo muestra mejor: con la corrección se ve el camuflaje; sin ella, es una silueta oscura.
+- **No hay franja sobre el horizonte** con la corrección activa (segunda fila).
+
+**2. El avión, con sus tres apariencias** (tecla `T`):
+
+![El avión con y sin la corrección](docs-p09/img/16-parte5-avion.jpg)
+
+Las partes que miran al sol mantienen el color (con la luz sumando 1, una cara de frente al sol llega a `kd` con y sin corrección). Lo que cambia es la **transición**: en el fuselaje (un cilindro) la luz pasa a la sombra de a poco, y el lado en sombra conserva el color. Sin la corrección, el cilindro se ve casi como dos mitades, una clara y otra oscura.
+
+**3. Las dos fallas que describe la guía**, provocadas a propósito en una **copia** de los shaders (en el scratchpad; los del proyecto no se tocaron):
+
+![Las dos fallas de una conversión que falta](docs-p09/img/17-parte5-errores.jpg)
+
+- **Cielo sin `a_lineal`:** *"si con la corrección se ve más pálido, falta pasar el color del cubemap a lineal"*. El cielo sale **lavado**: más claro y desaturado.
+- **Color de la niebla sin pasar a lineal:** *"si aparece [la franja], falta pasar el color de la niebla a lineal"*. El terreno lejano y el cielo cerca del horizonte llegan a un color **más claro** que el del cielo de arriba: una **franja blanquecina** (226, 233, 243 contra 196, 208, 229 cuando está bien).
+
+**4. Además:**
+- `make clean && make` compila sin advertencias. Los tests (`test_rm`, `test_primitives`, `test_normales`) pasan.
+- Al arrancar, la consola informa:
+
+```
+[luz]    terreno: usa 8 de 9 uniforms de la escena (no usa: uBlinnPhong)
+[luz]    aeronave: usa 8 de 9 uniforms de la escena (no usa: uModoSuelo)
+[luz]    fondo: usa 7 de 9 uniforms de la escena (no usa: uOjo, uBlinnPhong)
+niebla   : exponencial, V = 10000 m (63 % a V, 95 % a 3V); en el borde del clipmap (25600 m): 92.3 %
+gamma    : 2.2 en el shader (a_lineal / a_srgb); niebla en lineal = (0.558515, 0.642112, 0.78563); C la apaga
+```
+
+Los tres programas usan `uGamma` (los tres llaman a `a_srgb` al final).
+
+---
+
+## Cómo probarlo (Parte 5)
+
+```bash
+make clean && make && ./bin/ogl-app
+```
+
+(`make clean` hace falta porque cambió `Iluminacion.h`, que incluyen varios archivos.)
+
+1. **La consola** muestra la línea `gamma    : 2.2 en el shader ...`, la niebla con `V = 10000 m` y la tecla `C` en la línea de teclas.
+2. **Pausar** (`ESPACIO`) y apretar **C** varias veces: con la corrección, el terreno se ve más claro y las sombras más suaves; sin ella, las sombras quedan casi negras.
+3. **El cielo:** bajar la cámara hasta ver el cielo (botón izquierdo, arrastrar hacia arriba) y apretar **C**: el cielo no cambia, solo la panza del avión.
+4. **El avión:** acercar la cámara (botón derecho, arrastrar hacia arriba), girarla para verlo de costado y apretar **C** con cada apariencia (**T**).
+5. **El horizonte:** con la corrección activa, mirar el horizonte y apretar **J** para el gris: aparece la franja; con el color del horizonte, desaparece.
+
+---
+
+## Lo que sigue: los opcionales
+
+Con la Parte 5 terminan las partes obligatorias del Práctico 09. Siguen los opcionales, en el orden de la decisión 14:
+
+1. **Halo del sol:** un resplandor alrededor de la dirección del sol en el cielo (`fondo.fs`, `pow(max(dot(d, L), 0), n)`), para ubicarlo al mirar con la cámara.
+2. **Ciclo día/noche:** el opcional de la guía (el sol gira, se pone anaranjado y se apaga debajo del horizonte; el cielo y la niebla se oscurecen).
+3. **Curvatura de la Tierra:** el horizonte que baja al subir.

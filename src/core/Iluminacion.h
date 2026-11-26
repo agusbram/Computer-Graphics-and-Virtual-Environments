@@ -52,16 +52,23 @@ struct Iluminacion {
     // toda la escena. Por eso es una sola dirección para todos los puntos (la
     // w = 0 de las filminas) y no una posición: no se calcula L por fragmento.
     glm::vec3 sol_dir {0.0f, 0.0f, 1.0f};   // dirección HACIA el sol (de la superficie a la luz), mundo, unitaria
-    glm::vec3 sol_color {0.7f};             // color e intensidad del sol (lineal: proporción de la luz)
-    glm::vec3 ambiente {0.3f};              // luz ambiente (0,3 + 0,7 = 1: sin zonas quemadas)
+    // Valores (decisión 18, Parte 5): sol 0,9 y ambiente 0,1, elegidos con la
+    // corrección gamma ACTIVA. Hasta la Parte 4 eran 0,7 y 0,3 (los de la
+    // guía); con la gamma, 0,3 de ambiente deja la cara en sombra al 58 % del
+    // color de la textura (0,3^(1/2,2)) y el relieve se aplana. Con 0,1 queda
+    // al 35 % (0,1^(1/2,2)), casi como el 30 % que se veía sin corrección.
+    // Son PROPORCIONES de luz (lineales): no se convierten con a_lineal.
+    glm::vec3 sol_color {0.9f};             // color e intensidad del sol (lineal: proporción de la luz)
+    glm::vec3 ambiente {0.1f};              // luz ambiente (0,1 + 0,9 = 1: sin zonas quemadas)
 
     // --- Niebla ---
     // Parte 4: EXPONENCIAL, f = 1 - e^(-d/V) (aplicar_niebla, código común). Un
     // solo parámetro, la VISIBILIDAD V. (Hasta la Parte 3 era la lineal del
     // Práctico 08, con un inicio y un fin.) main elige V (kVisibilidad) y
     // la pone en 0 con la tecla N.
-    glm::vec3 niebla_color {0.5f};          // color del horizonte del cielo (lo calcula el Skybox; J: gris)
-    float     visibilidad {600.0f};         // V, u de escena (600 u = 6 km): a V la niebla es del 63 %;
+    glm::vec3 niebla_color {0.5f};          // color del horizonte del cielo (lo calcula el Skybox; J: gris).
+                                            // P09, Parte 5: en LINEAL si gamma = 1 (main lo convierte)
+    float     visibilidad {1000.0f};        // V, u de escena (1000 u = 10 km; Parte 4: 6 km): a V, 63 %;
                                             // <= 0 -> sin niebla (tecla N)
 
     // --- Verificación de la luz del suelo (Parte 2, tecla B) ---
@@ -77,6 +84,15 @@ struct Iluminacion {
     // exponente x 4). Es de la ESCENA y no del avión: el modelo es UNO para
     // toda la escena (en el suelo no se nota porque su ks = 0).
     int       blinn_phong {0};
+
+    // --- Corrección gamma (Parte 5, tecla C) ---
+    // 1 = activa (lo correcto): los shaders pasan los colores a lineal, hacen
+    // las cuentas y escriben el resultado en sRGB (a_lineal / a_srgb del
+    // código común). 0 = sin corrección, como hasta la Parte 4. Es de la
+    // ESCENA: los tres programas tienen que convertir (o no) a la vez; si uno
+    // solo lo hiciera, el borde entre la malla y el suelo continuado se vería.
+    // Ojo: con gamma = 1, `niebla_color` también tiene que estar en lineal.
+    int       gamma {1};
 };
 
 // Ubicaciones de los uniforms de iluminacion.glsl en UN programa. -1 = el
@@ -86,10 +102,11 @@ struct UniformsIluminacion {
     int niebla_color = -1, visibilidad = -1;   // P09, Parte 4: uVisibilidad reemplaza a inicio/fin
     int modo_suelo = -1;   // P09, Parte 2 (tecla B)
     int blinn_phong = -1;  // P09, Parte 3 (tecla R)
+    int gamma = -1;        // P09, Parte 5 (tecla C)
 };
 
 // Busca (una vez) las ubicaciones en el programa e informa por consola cuántas
-// usa: "[luz] fondo: usa 6 de 8 (no usa: uOjo, ...)". `nombre` es solo para
+// usa: "[luz] fondo: usa 7 de 9 (no usa: uOjo, ...)". `nombre` es solo para
 // ese informe.
 UniformsIluminacion buscar_uniforms_iluminacion(const Shader& programa,
                                                 const std::string& nombre);

@@ -1,7 +1,8 @@
 // -----------------------------------------------------------------------------
 // iluminacion.glsl — código GLSL COMÚN a los fragment shaders de la escena
 // (Práctico 09: Parte 1, el archivo común; Parte 2, la luz del suelo; Parte 3,
-// el avión y Blinn-Phong; Parte 4, la niebla exponencial)
+// el avión y Blinn-Phong; Parte 4, la niebla exponencial; Parte 5, la
+// corrección gamma)
 //
 // El terreno, el avión y el fondo (que pinta el suelo continuado) tienen que
 // usar EL MISMO sol y LA MISMA niebla: si uno usara otro modelo u otros
@@ -46,9 +47,14 @@ uniform int   uBlinnPhong;    // P09, Parte 3 (tecla R): 0 = Phong (vector R), 1
 
 // Niebla. Parte 1: la lineal del Práctico 08 (con un inicio y un fin), mudada
 // a este archivo. Parte 4: EXPONENCIAL, con un solo parámetro, la VISIBILIDAD V.
-uniform vec3  uNieblaColor;   // color de la niebla = color del horizonte del cielo (tecla J: gris)
+uniform vec3  uNieblaColor;   // color de la niebla = color del horizonte del cielo (tecla J: gris).
+                              // P09, Parte 5: llega YA EN LINEAL si la gamma está activa
+                              // (lo convierte main, una vez por cuadro, en la CPU)
 uniform float uVisibilidad;   // V: distancia a la que la niebla llega al 63 %, unidades de escena;
                               // <= 0 -> niebla apagada (tecla N)
+
+// Corrección gamma (Parte 5): ver a_lineal() / a_srgb() al final del archivo.
+uniform int   uGamma;         // 1 = corrección activa (lo correcto); 0 = sin corrección (tecla C)
 
 // --- Material (Partes 2 y 3) ----------------------------------------------------
 // Coeficientes del modelo de Phong de UN objeto. Es un dato del OBJETO, no de
@@ -70,7 +76,8 @@ struct Material
 // Desde la Parte 2 la usa el SUELO (malla del terreno y suelo continuado, a
 // través de iluminar_suelo, más abajo); desde la Parte 3, también el avión.
 //
-// Las tres componentes, con los valores de la escena (sol 0,7, ambiente 0,3):
+// Las tres componentes (valores de la escena: sol 0,9 y ambiente 0,1 desde la
+// Parte 5, elegidos con la corrección gamma activa; antes, 0,7 y 0,3):
 //   ambiente : uAmbiente·kd. La luz que "rebota por todos lados": llega igual a
 //              todos los puntos, aun a los que no ven el sol. Sin ella, las
 //              laderas en sombra quedarían NEGRAS.
@@ -193,4 +200,56 @@ vec3 aplicar_niebla(vec3 color, vec3 P)
     float d = length(P - uOjo);             // distancia del punto al ojo (unidades de escena)
     float f = 1.0 - exp(-d / uVisibilidad); // factor de niebla, en [0, 1)
     return mix(color, uNieblaColor, f);
+}
+
+// --- CORRECCIÓN GAMMA (Parte 5) --------------------------------------------------
+// EL PROBLEMA. Las cuentas de la luz (kd·luz·cos θ, sumar ambiente + difusa +
+// especular) y la mezcla de la niebla suman y multiplican INTENSIDADES DE LUZ:
+// solo valen si los números son PROPORCIONALES a la luz (escala LINEAL). Pero
+// la pantalla no es lineal: un valor v se ve con una intensidad ~ v^2,2. Por
+// eso las imágenes y los colores elegidos "a ojo" vienen en sRGB, comprimidos
+// con la curva inversa (v^(1/2,2)): así se ven bien en la pantalla sin hacer
+// nada. Si se hacen las cuentas con esos valores y el resultado se escribe tal
+// cual, la luz queda deformada. Ejemplo de la guía: una cara con N·L = 0,5
+// recibe la mitad de la luz; se escribe 0,5 y la pantalla muestra
+// 0,5^2,2 = 0,22 (¡menos de la cuarta parte!): la sombra llega demasiado rápido.
+//
+// LA SOLUCIÓN, en dos pasos en cada fragment shader:
+//   1. ENTRAR en lineal: pasar con a_lineal() cada COLOR que entra en las
+//      cuentas (texturas, cubemap, degradé, kd de las piezas, colores de
+//      depuración). El color de la niebla lo pasa main en la CPU.
+//   2. SALIR en sRGB: al FINAL de todo (después de la niebla), a_srgb() sobre
+//      el resultado. En el ejemplo se escribe 0,5^(1/2,2) = 0,73 y la pantalla
+//      muestra 0,73^2,2 = 0,5: justo la mitad.
+//
+// QUÉ SE CONVIERTE: lo que representa un COLOR elegido por cómo se VE en la
+// pantalla (no importa si sale de una imagen o se escribió a mano).
+// QUÉ NO: lo que ya es una PROPORCIÓN de luz (uSolColor = 0,9 y uAmbiente =
+// 0,1 suman la luz total; ks es la fracción reflejada como brillo) y los DATOS
+// que se pintan como color (las normales de la tecla V: una dirección, no un
+// color).
+//
+// Se usa la aproximación de la curva sRGB con γ = 2,2 (la de la Unidad III y la
+// guía). Decisión 11: EN EL SHADER, con pow, y no por hardware (texturas
+// GL_SRGB8_ALPHA8 + GL_FRAMEBUFFER_SRGB): así se puede APAGAR con una tecla
+// para comparar (C), y no depende de que la ventana admita un framebuffer sRGB.
+// OJO: entonces las texturas tienen que seguir en GL_RGBA8. Si además se
+// cargaran como sRGB, la conversión a lineal se haría DOS veces (todo oscuro).
+//
+// uGamma = 0 (tecla C): las dos funciones devuelven el color TAL CUAL, y la
+// escena sale idéntica a la de la Parte 4. Así los shaders se escriben una vez
+// (con las conversiones, como propone la guía) y la tecla no los cambia.
+const float GAMMA = 2.2;
+
+// Color en sRGB -> lineal (para las CUENTAS). Ej.: 0,5 -> 0,22.
+vec3 a_lineal(vec3 c)
+{
+    return (uGamma == 1) ? pow(c, vec3(GAMMA)) : c;
+}
+
+// Resultado lineal -> sRGB (para la PANTALLA). Ej.: 0,22 -> 0,5; 0,5 -> 0,73.
+// Va al FINAL, después de la niebla: es lo último antes de escribir FragColor.
+vec3 a_srgb(vec3 c)
+{
+    return (uGamma == 1) ? pow(c, vec3(1.0 / GAMMA)) : c;
 }

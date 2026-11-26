@@ -25,6 +25,7 @@ UniformsIluminacion buscar_uniforms_iluminacion(const Shader& programa,
     u.visibilidad   = programa.loc("uVisibilidad", false);   // P09, Parte 4
     u.modo_suelo    = programa.loc("uModoSuelo", false);
     u.blinn_phong   = programa.loc("uBlinnPhong", false);
+    u.gamma         = programa.loc("uGamma", false);         // P09, Parte 5 (los tres lo usan)
 
     // Informe: cuántos usa este programa y cuáles no. Reemplaza al aviso de
     // loc(): sirve para notar un nombre mal escrito sin repetir un aviso por
@@ -33,7 +34,8 @@ UniformsIluminacion buscar_uniforms_iluminacion(const Shader& programa,
         {"uSolDir", u.sol_dir}, {"uSolColor", u.sol_color}, {"uAmbiente", u.ambiente},
         {"uOjo", u.ojo}, {"uNieblaColor", u.niebla_color},
         {"uVisibilidad", u.visibilidad},
-        {"uModoSuelo", u.modo_suelo}, {"uBlinnPhong", u.blinn_phong}};
+        {"uModoSuelo", u.modo_suelo}, {"uBlinnPhong", u.blinn_phong},
+        {"uGamma", u.gamma}};
     int usados = 0;
     std::string faltan;
     for (const auto& [n, ubicacion] : todos) {
@@ -65,6 +67,7 @@ void enviar_iluminacion(const Shader& programa, const UniformsIluminacion& u,
     programa.set_uniform(u.visibilidad, luz.visibilidad);
     programa.set_uniform(u.modo_suelo, luz.modo_suelo);
     programa.set_uniform(u.blinn_phong, luz.blinn_phong);
+    programa.set_uniform(u.gamma, luz.gamma);             // P09, Parte 5
 }
 
 glm::vec3 sol_con_elevacion(const glm::vec3& base, float elevacion_grados)

@@ -16,6 +16,13 @@
 //   - colores de las piezas (tecla T): sin textura (uUsarTextura = 0);
 //   - imagen de prueba (tecla U): blanco -> kd = la imagen tal cual.
 // ks y ns dependen de la apariencia (mate, metal, plástico; ver Aircraft.cpp).
+//
+// Práctico 09 (Parte 5): CORRECCIÓN GAMMA. El kd de la pieza y la textura se
+// pasan a LINEAL (a_lineal) antes de la luz, y el resultado final, a sRGB
+// (a_srgb). El kd se eligió en el Práctico 04 MIRANDO la pantalla sin
+// corrección: es un color en sRGB. Si no se lo convirtiera, con la corrección
+// activa la pieza se vería más clara y desaturada que en el Práctico 04.
+// ks y ns NO se convierten: ks es una proporción de la luz, no un color.
 // -----------------------------------------------------------------------------
 
 // ENTRADAS (in): las salidas de aeronave.vs, INTERPOLADAS para este fragmento.
@@ -65,22 +72,29 @@ void main()
     // La textura se lee SIEMPRE (también sin textura) y recién después se
     // elige: el filtrado con mipmaps necesita las derivadas de las (u, v)
     // entre fragmentos vecinos, que no están definidas dentro de un if.
-    vec3 texel = texture(uTextura, vTexCoord).rgb;
+    vec3 texel = texture(uTextura, vTexCoord).rgb;   // sRGB (es una imagen)
 
     // El material de ESTE fragmento: el de la pieza, con la textura
     // MULTIPLICANDO al kd (decisión 6; la textura aporta el detalle y el kd
     // tiñe). ks y ns no los toca la textura: el brillo de una pintura o de un
     // metal es del color de la luz, no del de la superficie.
+    // Parte 5: kd y textura, los DOS a lineal. (Como (a·b)^2,2 = a^2,2·b^2,2,
+    // da lo mismo convertir cada uno o el producto.) ks queda como está.
     Material m = uMaterial;
+    m.kd = a_lineal(uMaterial.kd);
     if (uUsarTextura == 1) {
-        m.kd = uMaterial.kd * texel;
+        m.kd *= a_lineal(texel);
     }
 
     // LUZ: la MISMA función que el suelo (código común), con el material de
     // la pieza. A diferencia del suelo, acá ks > 0: aparece el BRILLO
     // especular, la única parte de la luz que cambia al mover la cámara.
+    // Las cuentas, en LINEAL (Parte 5).
     vec3 color = iluminar(vPosMundo, N, m);
 
-    // NIEBLA, después de la luz (la niebla no se ilumina).
-    FragColor = vec4(aplicar_niebla(color, vPosMundo), 1.0);
+    // NIEBLA, después de la luz (la niebla no se ilumina). En lineal.
+    color = aplicar_niebla(color, vPosMundo);
+
+    // Parte 5: AL FINAL, de vuelta a sRGB para la pantalla.
+    FragColor = vec4(a_srgb(color), 1.0);
 }
