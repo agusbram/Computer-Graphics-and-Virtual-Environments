@@ -81,7 +81,7 @@ un `main.cpp` gigante.
 | `FlightData` | pitch, roll, hdg (rumbo), etc. |
 | `CircuitState` | waypoints (circuito / checkpoints) |
 | `CameraData` | datos de la cámara |
-| `Iluminacion` (P09) | sol (dirección, color), luz ambiente, niebla (color y visibilidad), modo de verificación del suelo (tecla B), Phong/Blinn-Phong (tecla R) y corrección gamma (tecla C): un solo lugar, lo leen los tres programas |
+| `Iluminacion` (P09) | sol (dirección, color), luz ambiente, niebla (color y visibilidad), modo de verificación del suelo (tecla B), Phong/Blinn-Phong (tecla R), corrección gamma (tecla C) y modo del halo del sol (tecla Y): un solo lugar, lo leen los tres programas |
 | `Material` (P09) | coeficientes de Phong de una pieza `{kd, ks, ns}`: viaja en el `RenderItem` en lugar del color |
 | `ShaderSource` (P09) | fuente de un programa: lista de archivos por etapa (lo llena `ResourceManager`, lo compila `Shader`) |
 
@@ -144,7 +144,8 @@ La arquitectura es el **destino**; el código actual ya da pasos hacia ella:
 - **Iluminación y niebla** (Práctico 09): código GLSL común ✔,
   terreno iluminado (Phong) ✔, avión iluminado (material en el `RenderItem`,
   matriz normal calculada al dibujar) ✔, niebla exponencial (terreno, avión y
-  cielo) ✔, corrección gamma en el código común ✔; siguen los opcionales.
+  cielo) ✔, corrección gamma en el código común ✔, opcional halo del sol ✔;
+  siguen día/noche y curvatura.
   Ver `Practico09-Decisiones.md`.
 - **HUD**: el módulo `HUD`.
 - **Circuito / maniobras**: `CircuitState` + `GameLogic`.

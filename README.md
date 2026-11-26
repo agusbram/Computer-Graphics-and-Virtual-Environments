@@ -76,6 +76,11 @@ que se desarrollan los prácticos del proyecto integrador
     sRGB. El cielo se ve igual con y sin ella. Con la corrección activa se
     reajustaron la luz (ambiente 0,1 / sol 0,9) y la visibilidad (`V = 10 km`,
     92,3 % en el borde del clipmap). Tecla `C`.
+  - *Opcional: halo del sol* ✔: en el cielo, un disco de 2° (el real mide
+    0,53° y se veía muy chico) y un resplandor alrededor de la dirección de la **luz** (sigue a
+    `O`/`P`; el sol pintado del cubemap no se mueve). La bruma se aclara hacia
+    el sol en el suelo lejano y en el cielo del horizonte por igual (sin
+    costura). Tecla `Y`.
 
 ---
 
@@ -111,7 +116,8 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
   sol pintado del cubemap; `V` = normales del avión como color; `X` = normales
   del avión con `M` en lugar de la matriz normal (el error); `R` = Phong ↔
   Blinn-Phong; `J` = color de la niebla (horizonte / gris / cielo sin niebla);
-  `C` = corrección gamma (activa / apagada).
+  `C` = corrección gamma (activa / apagada); `Y` = halo del sol (completo /
+  solo el cielo / sin halo).
 - **Mouse**: botón izquierdo arrastrado = orbitar (yaw/pitch); botón derecho
   arrastrado (vertical) = acercar/alejar.
 - La consola muestra versión de driver/vendor/GLSL al arrancar.
@@ -470,12 +476,15 @@ Se hace **parte por parte**. Hecho hasta ahora:
 | **Parte 4:** `fondo.fs`, `Skybox`, `main.cpp` | El cielo se mezcla con la niebla en los primeros 5,7° (`1 − smoothstep(0, 0.10, d.z)`). Tecla `J`. Informes de la niebla en el borde del clipmap y del suelo más cercano según la altura. |
 | **Parte 5:** `iluminacion.glsl`, los tres `.fs` | `a_lineal()` / `a_srgb()` (`pow 2,2`, uniform `uGamma`): cada color entra en lineal y el resultado sale en sRGB, después de la niebla. Las normales como color no se convierten. |
 | **Parte 5:** `main.cpp`, `Iluminacion` | El color de la niebla se pasa a lineal en la CPU. Tecla `C`. Reajuste con la corrección activa: ambiente 0,1 / sol 0,9 y `V = 10 km`. |
+| **Opcional (halo):** `fondo.fs` | `halo_sol(d)`: disco de 2° + corona + aureola alrededor de `uSolDir`, sumados al cielo en lineal y proporcionales a `uSolColor`. |
+| **Opcional (halo):** `iluminacion.glsl`, `Iluminacion`, `main.cpp` | `color_niebla(dir)`: la bruma se aclara hacia el sol; la usan `aplicar_niebla()` y el cielo del horizonte. Uniform `uHalo`, tecla `Y`. |
 
 - **Parte 1 = reorganización:** la imagen sale igual que en el P08 (verificado con capturas). La niebla sigue siendo lineal hasta la Parte 4.
 - **Parte 2 = el terreno iluminado:** verificado con los tres modos de `B` desde la misma cámara, el sol bajo y alto, el brillo igual a los dos lados del borde malla/suelo continuado y la normal como color en el borde de los anillos (con capturas en `docs-p09/img/`).
 - **Parte 3 = el avión iluminado:** verificado con las normales como color (`V`), la comparación `M` / matriz normal (`X`: cambian solo la nariz y la cola), los reflejos de las tres apariencias, Phong contra Blinn-Phong (`R`) y el avión alabeado.
 - **Parte 4 = la niebla exponencial:** verificado con la niebla gris (aparece la franja), el cielo sin niebla (vuelve la línea del P08), el borde del clipmap con y sin niebla, y el contraste del terreno medido a varias alturas.
 - **Parte 5 = la corrección gamma:** verificado con la misma vista con y sin `C` (el cielo sale igual: diferencia media 0,04 sobre 255), el avión con sus tres apariencias, y las dos fallas de la guía provocadas a propósito en una copia de los shaders (cielo lavado, franja en el horizonte). El ambiente y la visibilidad se eligieron midiendo varias opciones sobre el mismo cuadro.
+- **Opcional: halo del sol:** verificado sobre el degradé (disco de ~29 px medido), con el sol bajo (dos soles con `O`/`P`; sin costura en el horizonte con los tres modos de `Y`), con `J` en gris (la franja sigue apareciendo) y en la vista normal (de espaldas al sol no cambia nada).
 - **Arreglo:** un shader que no compila ya no hace caer el programa (se lanza una excepción en vez de cerrar la ventana antes de destruir los `Shader`).
 
 Ver [`Practico09-Decisiones.md`](Practico09-Decisiones.md) y [`Practico09-Consultas.md`](Practico09-Consultas.md).
@@ -485,13 +494,14 @@ Ver [`Practico09-Decisiones.md`](Practico09-Decisiones.md) y [`Practico09-Consul
 - [`Arquitectura-Proyecto.md`](Arquitectura-Proyecto.md) — arquitectura en capas
   del proyecto (aplicación / sistemas / datos), destino del simulador.
 - [`Practico09-Decisiones.md`](Practico09-Decisiones.md) — iluminación y niebla:
-  las 19 decisiones de diseño (15 antes de implementar, 2 al empezar la Parte 3 y
-  2 en la Parte 5) y cada parte hecha
+  las 24 decisiones de diseño (15 antes de implementar, 2 al empezar la Parte 3,
+  2 en la Parte 5 y 5 del halo del sol) y cada parte hecha
   (Parte 1: código GLSL común, `#version` y `#line`, struct `Iluminacion`;
   Parte 2: el terreno iluminado, material del suelo, normales del clipmap;
   Parte 3: el avión iluminado, material, matriz normal, ápice del cono;
   Parte 4: niebla exponencial, visibilidad elegida, niebla en el cielo;
-  Parte 5: corrección gamma, qué se convierte, reajuste de la luz y la niebla).
+  Parte 5: corrección gamma, qué se convierte, reajuste de la luz y la niebla;
+  opcional 1: halo del sol, los dos soles, la bruma hacia el sol).
 - [`Practico09-Consultas.md`](Practico09-Consultas.md) — FAQ del P09.
 - [`Practico08-Decisiones.md`](Practico08-Decisiones.md) — texturas y cielo:
   `ImageData`/`load_image` (flip, RGBA, `unload_image`), módulo `Texture` (4 etapas

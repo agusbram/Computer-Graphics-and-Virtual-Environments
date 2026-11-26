@@ -28,7 +28,8 @@ Mejorar la apariencia de la escena con **iluminación** y **niebla**:
 | 3 | La aeronave iluminada (material, matriz normal) | ✔ hecha (23-nov) |
 | 4 | Niebla exponencial (también en el avión y el cielo) | ✔ hecha (25-nov) |
 | 5 | Corrección gamma (y reajuste de la luz y la niebla) | ✔ hecha (25-nov) |
-| Opcionales | halo del sol → día/noche → curvatura de la Tierra | siguen |
+| Opcional 1 | Halo del sol (y la bruma que se aclara hacia el sol) | ✔ hecho (26-nov) |
+| Opcionales 2 y 3 | día/noche → curvatura de la Tierra | siguen |
 
 La **presentación de avance** es el viernes 27 de noviembre. El objetivo es llegar con las Partes 1 a 5.
 
@@ -73,6 +74,18 @@ La guía pide volver a ajustar la luz ambiente y la visibilidad **con la correcc
 |---|---|---|---|
 | 18 | ¿Qué luz ambiente con la gamma? (reemplaza los valores de la decisión 10) | **Ambiente 0,10 y sol 0,90.** | Con 0,3 la cara en sombra se ve al 58 % de la textura y el relieve se aplana; con 0,1, al 35 %, casi como el 30 % de antes. Siguen sumando 1. |
 | 19 | ¿Qué visibilidad con la gamma? (ajusta la decisión 12) | **V = 10 km**, fija. | Con la mezcla en lineal la niebla se ve más espesa. 10 km es el máximo del clipmap (92,3 % en el borde) y deja el contraste más parecido a la Parte 4. |
+
+### Decisiones del opcional "halo del sol" (26-nov)
+
+Se eligieron todas las recomendadas.
+
+| # | Pregunta | Decisión | Por qué |
+|---|---|---|---|
+| 20 | ¿Qué forma tiene el halo? | **Disco + resplandor** alrededor de la dirección de la luz. | Es lo que se ve en un cielo real con algo de bruma; sobre el degradé se reconoce como el sol. Solo resplandor parece una luz difusa; solo disco, artificial. |
+| 21 | ¿De qué tamaño el disco? | Primero **el real, 0,53°** (~7 px con la cámara de 45° en 600 px). Al verlo se veía **muy chico** y se agrandó a **2°** (~25 px), la otra opción que se había planteado. | El sol que percibimos parece más grande que su tamaño geométrico porque encandila; la pantalla no puede reproducir ese brillo, así que, como en los simuladores y los juegos, se dibuja más grande (consulta 22). |
+| 22 | ¿De qué color e intensidad? | **Proporcional a `uSolColor`.** | El halo es la misma luz que ilumina la escena: si el sol cambia de color o se apaga (día/noche), lo sigue solo. |
+| 23 | ¿Qué pasa cerca del horizonte? | El halo del cielo **se funde con la niebla** como el resto del cielo, **y la bruma se aclara hacia el sol** (en los tres programas). | Sin costura con el sol bajo (el cielo y el suelo usan la misma función), y el sol bajo brilla a través de la bruma. Es la misma física que el halo: la dispersión hacia adelante. |
+| 24 | ¿Tecla? | **`Y` con tres modos:** completo / solo el halo del cielo / sin halo. | Como `B` y `J`: permite ver qué aporta cada parte. |
 
 ---
 
@@ -881,10 +894,129 @@ make clean && make && ./bin/ogl-app
 
 ---
 
-## Lo que sigue: los opcionales
+## Opcional 1 — Halo del sol
 
-Con la Parte 5 terminan las partes obligatorias del Práctico 09. Siguen los opcionales, en el orden de la decisión 14:
+Con la Parte 5 terminan las partes obligatorias del Práctico 09. Siguen los opcionales, en el orden de la decisión 14: halo del sol → día/noche → curvatura de la Tierra. **La guía no pide el halo:** es una mejora propia (`Practico09-Pendientes.md`, sección 9).
 
-1. **Halo del sol:** un resplandor alrededor de la dirección del sol en el cielo (`fondo.fs`, `pow(max(dot(d, L), 0), n)`), para ubicarlo al mirar con la cámara.
-2. **Ciclo día/noche:** el opcional de la guía (el sol gira, se pone anaranjado y se apaga debajo del horizonte; el cielo y la niebla se oscurecen).
-3. **Curvatura de la Tierra:** el horizonte que baja al subir.
+### Resumen de lo que se agregó (halo)
+
+| Pieza | Qué cambió |
+|---|---|
+| `fondo.fs` | `halo_sol(d)`: un **disco** de 2° y un **resplandor** (corona y aureola) alrededor de `uSolDir`, sumados al cielo en lineal. La mezcla del cielo con la niebla usa `color_niebla(d)`. |
+| `iluminacion.glsl` | `color_niebla(dir)`: el color de la niebla **se aclara hacia el sol**. `aplicar_niebla()` lo usa con la dirección del ojo al punto. Uniform `uHalo` (tecla `Y`). |
+| `Iluminacion.h/.cpp` | Campo `halo` → `uHalo`. El informe `[luz]` cuenta 10 uniforms. |
+| `main.cpp` | Tecla **Y** (completo / solo el cielo / sin halo). Al arrancar informa el halo. |
+
+### Lo que se encontró antes de empezar: el sol pintado
+
+El sol del cubemap **no es un disco**: es una zona grande de nubes **blancas saturadas** (en la cara izquierda del cubemap hay unos 125 000 píxeles con brillo ≥ 250 de 255) con rayos que salen de ella. Eso define dónde se ve el halo:
+
+| Situación | Sol pintado (parte de la foto) | Halo (lo dibuja el shader en `uSolDir`) | Qué se ve |
+|---|---|---|---|
+| Al arrancar, o después de **H** (luz a 29,8°) | a 29,8° | a 29,8°, encima del pintado | **Un sol**: el halo queda escondido adentro, porque blanco + luz sigue siendo blanco |
+| Con **O/P** (por ejemplo, luz a 5°) | sigue a 29,8°: es una imagen | a 5°, donde está la luz | **Dos soles**: el pintado, que ya no ilumina nada, y el halo, que marca de dónde viene la luz |
+| Degradé (**K**) | no hay | en la dirección de la luz | **Un sol**: el halo |
+
+El halo no es el sol pintado: es un sol aparte, que siempre está donde está la luz. Para que nunca hubiera dos, habría que borrar el sol de las imágenes del cubemap (consulta 20).
+
+### El halo en el cielo (decisiones 20, 21 y 22)
+
+Todo se mide con el **ángulo** entre la dirección del píxel `d` y la del sol: `coseno = d · uSolDir`.
+
+| Parte | Cómo se calcula | Ancho | Brillo (× `uSolColor`) |
+|---|---|---|---|
+| **Disco** | `1 − smoothstep(0,92°, 1,08°, ángulo)`: 1 adentro, 0 afuera, borde suavizado en ~2 px | radio **1°** (diámetro 2°, ~25 px; el real mide 0,53°) | 20: satura a blanco |
+| **Corona** | `max(coseno, 0)^500` | cae a la mitad a ~3° | 0,15 |
+| **Aureola** | `max(coseno, 0)^40` | cae a la mitad a ~11° | 0,12 |
+
+- **El tamaño (decisión 21).** Se probó primero el real, 0,53° (~7 px): se veía **muy chico**. El sol que percibimos parece más grande porque encandila, y la pantalla no puede reproducir ese brillo; se agrandó a 2°. Medido sobre el degradé: **~29 px** (los 25 de 2°, el borde suavizado y un poco más porque el sol cae lejos del centro de la pantalla, donde la perspectiva estira). Con el disco más grande la corona quedaba casi toda adentro: se ensanchó de `^2000` (mitad a ~1,5°) a `^500` (mitad a ~3°).
+- **El borde suavizado** hace falta porque el MSAA solo suaviza los bordes de los triángulos, no lo que el shader pinta adentro de uno: un disco con borde duro se vería escalonado.
+- **El resplandor es suave a propósito.** El primer intento tenía la corona en 1,0. El cielo ya es claro (el azul del degradé alrededor del sol vale ~0,87 en pantalla, ~0,7 en lineal) y todo alrededor del sol se recortaba a blanco: una mancha de **34 px** (~2,7°) que escondía el disco, que todavía medía 0,53°. Con ~0,25 junto al borde del disco, alrededor queda un celeste muy claro y el disco se distingue.
+- **Se suma en lineal**, después de `a_lineal(cielo)` y antes de `a_srgb`: es luz. Sin la corrección gamma (`C`), la misma suma sobre valores sRGB se ve mucho más fuerte y tapa el disco.
+- **Proporcional a `uSolColor`:** si el sol cambia de color o se apaga, el halo lo sigue.
+
+### La bruma hacia el sol (decisión 23)
+
+El aire dispersa la luz sobre todo **hacia adelante**, pocos grados respecto de la dirección en que venía. Por eso, mirando hacia el sol, el aire brilla: es el halo alrededor del sol, y es también la bruma luminosa del horizonte a contraluz. Se imita sumándole al color de la niebla un brillo que crece cuando la vista se acerca al sol:
+
+```glsl
+// iluminacion.glsl. dir: del ojo hacia el punto (unitaria); L = uSolDir.
+color(dir) = uNieblaColor + uSolColor · 0,5 · max(dir · L, 0)^8     // solo con Y en "completo"
+```
+
+- **Ancho:** con exponente 8, el brillo cae a la mitad a ~23° del sol y casi no queda a 60°. Es mucho más ancho que el halo del cielo: es el aire de muchos kilómetros.
+- **Quién lo usa:** `aplicar_niebla()` (terreno, avión y suelo continuado, con la dirección del ojo al punto) y la mezcla del cielo cerca del horizonte en `fondo.fs` (con `d`). Como el suelo lejano y el cielo del horizonte usan la **misma** función con la **misma** dirección, en el horizonte valen lo mismo: **no hay costura**, aunque el sol esté bajo.
+- **El halo del cielo se suma antes de la mezcla con la niebla:** cerca del horizonte se funde como el resto del cielo, y no queda cortado en seco contra el suelo.
+- **En la vista normal** casi no se nota. Mirando de espaldas al sol no cambia nada (diferencia 0,0). Mirando hacia el sol, con el sol en su lugar (29,8°), la franja del horizonte se aclara unos 11 niveles de 255 (14 del lado del sol). Donde más se nota es con el sol **bajo**: el horizonte hacia el sol queda luminoso, como al atardecer.
+
+### La tecla Y
+
+| `Y` | Halo del cielo | Bruma hacia el sol | Para qué |
+|---|---|---|---|
+| 0 (inicial) | Sí | Sí | Lo completo. |
+| 1 | Sí | No | Ver qué aporta la bruma: con el sol bajo, el resplandor **se apaga** contra el horizonte y el disco se hunde en la bruma; el horizonte no brilla. |
+| 2 | No | No | Como la Parte 5. |
+
+### Verificación
+
+**1. Dónde se ve el halo**, con la cámara apuntando al sol:
+
+![El halo sobre el cubemap y sobre el degradé](docs-p09/img/19-halo-cubemap-degrade.jpg)
+
+Con el cubemap, el halo queda adentro del sol pintado y no cambia nada. Con el degradé (`K`), que no tiene sol, el halo es el sol: un disco de ~29 px con un resplandor suave.
+
+**2. El sol bajo (O/P) con el cubemap**, con los tres modos de `Y`:
+
+![El halo con el sol bajo](docs-p09/img/20-halo-sol-bajo.jpg)
+
+- **Arriba, sol a 4,8°:** se ven **dos soles**, el pintado (la mancha blanca de arriba a la izquierda) y el disco del halo cerca del horizonte. Con "completo", además, la bruma del horizonte se aclara hacia el sol.
+- **Abajo, sol a 0° (zoom del horizonte):** con "completo" el horizonte brilla hacia el sol; con "solo el cielo" el horizonte no brilla y del disco queda la mitad de arriba, hundiéndose en la bruma (es tan brillante que la niebla del horizonte recién lo tapa en el último grado); sin halo, es la Parte 5.
+- **Sin costura:** el perfil vertical bajo el sol tiene los mismos saltos con y sin halo, y son siluetas de lomas contra la bruma, que ya estaban en la Parte 5. El halo no agrega ningún corte en el horizonte.
+
+**3. El atardecer sobre el degradé y la vista normal:**
+
+![El halo al atardecer y en la vista normal](docs-p09/img/21-halo-atardecer.jpg)
+
+Arriba: el sol a 5° sobre el degradé, con los tres modos. Abajo: la vista normal girada hacia el lado del sol (la bruma apenas más clara) y de espaldas al sol (sin ningún cambio).
+
+**4. Además:**
+- Con **J** en gris la franja sobre el horizonte sigue apareciendo: la verificación de la Parte 4 no se rompió (la bruma se suma al gris).
+- `make clean && make` compila sin advertencias; los tests pasan.
+- La consola, al arrancar:
+
+```
+[luz]    terreno: usa 9 de 10 uniforms de la escena (no usa: uBlinnPhong)
+[luz]    aeronave: usa 9 de 10 uniforms de la escena (no usa: uModoSuelo)
+[luz]    fondo: usa 8 de 10 uniforms de la escena (no usa: uOjo, uBlinnPhong)
+halo     : disco de 2 grados + resplandor en la direccion de la luz; bruma mas clara hacia el sol; Y cambia el modo
+```
+
+Los tres programas usan `uHalo`: los tres usan la niebla, y la niebla ahora depende del modo del halo.
+
+### Lo que no se puede arreglar sin editar el cubemap
+
+- **Dos soles con O/P:** el sol pintado es parte de la foto y no se mueve.
+- **El halo se dibuja encima de las nubes:** aunque la luz quede detrás de una nube del cubemap, el disco se ve igual. La imagen no dice qué tan gruesa es cada nube.
+
+---
+
+## Cómo probarlo (halo)
+
+```bash
+make clean && make && ./bin/ogl-app
+```
+
+(`make clean` hace falta porque cambió `Iluminacion.h`.)
+
+1. **La consola** muestra la línea `halo     : ...` y la tecla `Y` en la línea de teclas.
+2. **El sol sobre el degradé:** pausar (`ESPACIO`), apretar **K** (degradé) y girar la cámara (botón izquierdo) hasta encontrar el disco con su resplandor. Con el cubemap (**K** de nuevo), ahí está el sol pintado.
+3. **Dos soles:** volver al cubemap, apretar **O** 4 o 5 veces (sol a 10° o 5°) y mirar hacia el horizonte de ese lado: el disco aparece abajo del sol pintado.
+4. **La tecla Y** con el sol bajo: completo (el horizonte brilla hacia el sol) → solo el cielo (el horizonte no brilla y el disco se hunde en la bruma) → sin halo.
+5. **H** vuelve el sol a su lugar: un solo sol otra vez.
+
+---
+
+## Lo que sigue: día/noche y curvatura
+
+1. **Ciclo día/noche:** el opcional de la guía (el sol gira, se pone anaranjado y se apaga debajo del horizonte; el cielo y la niebla se oscurecen). El halo ya sigue a `uSolColor` y a `uSolDir`: va a ser el sol que se mueve, y la bruma hacia el sol, el brillo del atardecer.
+2. **Curvatura de la Tierra:** el horizonte que baja al subir.

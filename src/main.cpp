@@ -1,6 +1,14 @@
 // -----------------------------------------------------------------------------
 // main.cpp — la aplicación (Prácticos 04 a 09)
 //
+// Lo nuevo del Práctico 09, opcional — el HALO DEL SOL:
+//   1. En el cielo, un disco de 2° (el sol real mide 0,53°) y un resplandor
+//      alrededor de la dirección de la LUZ (fondo.fs). Sigue a la luz con O/P;
+//      el sol pintado del cubemap, no (es parte de la foto).
+//   2. La bruma se aclara cuando se mira hacia el sol (color_niebla, código
+//      común): en el suelo lejano y en el cielo del horizonte por igual.
+//   3. Tecla Y (verificación): completo / solo el halo del cielo / sin halo.
+//
 // Lo nuevo del Práctico 09, Parte 5 — la CORRECCIÓN GAMMA:
 //   1. Los shaders hacen las cuentas de la luz y de la niebla en LINEAL: pasan
 //      cada color a lineal al entrar (a_lineal) y el resultado a sRGB al salir
@@ -195,6 +203,8 @@ struct AppContext {
     bool  blinn_phong   = false;    // R: false = Phong (R·V), true = Blinn-Phong (N·H, ns x 4)
     int   modo_niebla   = 0;        // J: 0 color del horizonte, 1 gris, 2 cielo sin niebla (Parte 4)
     bool  gamma         = true;     // C: corrección gamma activa (lo correcto) / apagada (Parte 5)
+    int   modo_halo     = 0;        // Y: 0 completo (halo + bruma hacia el sol), 1 solo el halo
+                                    //    del cielo, 2 sin halo (opcional "halo del sol")
 };
 
 // Práctico 08: ubicaciones de los uniforms "por pieza" de un programa. Se buscan
@@ -574,6 +584,9 @@ int main()
                           << "niebla en lineal = (" << std::pow(h.r, kGamma) << ", "
                           << std::pow(h.g, kGamma) << ", " << std::pow(h.b, kGamma)
                           << "); C la apaga" << std::endl;
+                // P09 (opcional): el halo del sol.
+                std::cout << "halo     : disco de 2 grados + resplandor en la direccion de la luz; "
+                          << "bruma mas clara hacia el sol; Y cambia el modo" << std::endl;
             }
 
             // --- Luz y niebla de la escena (Práctico 09, Partes 1 a 5) ------
@@ -592,7 +605,8 @@ int main()
             //   niebla_color -> teclas K (cielo activo) y J (gris); en lineal
             //                   si la gamma está activa (Parte 5);
             //   visibilidad  -> tecla N (niebla on/off);
-            //   gamma        -> tecla C (corrección gamma, Parte 5).
+            //   gamma        -> tecla C (corrección gamma, Parte 5);
+            //   halo         -> tecla Y (halo del sol, opcional).
             // (Por eso no hay asignaciones acá: todos los campos de `luz` que
             // no son los valores por omisión dependen de alguna tecla.)
             Iluminacion luz;
@@ -624,7 +638,8 @@ int main()
                       << "V=normales del avion como color, X=matriz normal / M, "
                       << "R=Phong / Blinn-Phong, "
                       << "J=niebla (horizonte / gris / cielo sin niebla), "
-                      << "C=correccion gamma" << std::endl;
+                      << "C=correccion gamma, "
+                      << "Y=halo del sol (completo / solo cielo / sin halo)" << std::endl;
             {
                 GLint muestras = 0;
                 glGetIntegerv(GL_SAMPLES, &muestras);
@@ -879,6 +894,7 @@ int main()
                 luz.sol_dir    = sol_con_elevacion(fondo.direccion_sol(), ctx.sol_elevacion);
                 luz.modo_suelo = ctx.modo_suelo;   // B: verificación de la luz del suelo
                 luz.blinn_phong = ctx.blinn_phong ? 1 : 0;   // R: modelo del brillo (P09, Parte 3)
+                luz.halo        = ctx.modo_halo;             // Y: halo del sol (P09, opcional)
                 //
                 // Borrar la pantalla al empezar el cuadro, en dos pasos:
                 //   glClearColor: solo ELIGE el color de borrado (R, G, B, A en
@@ -1137,6 +1153,19 @@ void key_callback(GLFWwindow* window, int key, [[maybe_unused]] int scancode,
                      ? "ACTIVA (cuentas en lineal, salida en sRGB)"
                      : "APAGADA (cuentas sobre valores sRGB, como hasta la Parte 4)")
                   << std::endl;
+    }
+
+    // --- Práctico 09 (opcional): el halo del sol -------------------------------
+    if (key == GLFW_KEY_Y) {
+        // 0: lo completo. 1: sin el brillo de la bruma (se ve qué aporta: con el
+        // sol bajo, el horizonte no brilla y el disco se hunde en la bruma). 2: sin halo, como la
+        // Parte 5. El halo del cielo se ve sobre el degradé (K) o con la luz
+        // movida (O/P); sobre el sol pintado casi no se nota (ya es blanco).
+        ctx->modo_halo = (ctx->modo_halo + 1) % 3;
+        const char* modos[3] = {"COMPLETO (halo en el cielo + bruma mas clara hacia el sol)",
+                                "solo el halo del CIELO (la niebla, de un solo color)",
+                                "SIN halo (como la Parte 5)"};
+        std::cout << "[Y] halo del sol: " << modos[ctx->modo_halo] << std::endl;
     }
 }
 

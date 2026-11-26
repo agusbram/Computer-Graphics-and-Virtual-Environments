@@ -93,6 +93,16 @@ struct Iluminacion {
     // solo lo hiciera, el borde entre la malla y el suelo continuado se vería.
     // Ojo: con gamma = 1, `niebla_color` también tiene que estar en lineal.
     int       gamma {1};
+
+    // --- Halo del sol (opcional, tecla Y; decisiones 20 a 24) ---
+    // 0 = completo: el halo en el cielo (disco + resplandor, fondo.fs) y la
+    //     bruma que se aclara hacia el sol (color_niebla, código común);
+    // 1 = solo el halo del cielo (la niebla vuelve a ser de un solo color);
+    // 2 = sin halo, como la Parte 5.
+    // Es de la ESCENA y no del fondo: la bruma la usan los TRES programas (la
+    // niebla del terreno, del avión y del suelo continuado), y el suelo lejano
+    // y el cielo del horizonte tienen que cambiar juntos (si no, costura).
+    int       halo {0};
 };
 
 // Ubicaciones de los uniforms de iluminacion.glsl en UN programa. -1 = el
@@ -103,10 +113,11 @@ struct UniformsIluminacion {
     int modo_suelo = -1;   // P09, Parte 2 (tecla B)
     int blinn_phong = -1;  // P09, Parte 3 (tecla R)
     int gamma = -1;        // P09, Parte 5 (tecla C)
+    int halo = -1;         // P09, opcional "halo del sol" (tecla Y)
 };
 
 // Busca (una vez) las ubicaciones en el programa e informa por consola cuántas
-// usa: "[luz] fondo: usa 7 de 9 (no usa: uOjo, ...)". `nombre` es solo para
+// usa: "[luz] fondo: usa 8 de 10 (no usa: uOjo, ...)". `nombre` es solo para
 // ese informe.
 UniformsIluminacion buscar_uniforms_iluminacion(const Shader& programa,
                                                 const std::string& nombre);

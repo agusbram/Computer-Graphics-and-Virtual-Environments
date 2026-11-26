@@ -43,6 +43,11 @@ Preguntas frecuentes del **Práctico 09 (iluminación y niebla)**, en el mismo f
 | Niebla con la corrección | Se mezcla en lineal: con la misma `V` se ve más **espesa** (10 % de niebla corre el pasto un 18 % en pantalla). Por eso `V` pasó a 10 km. |
 | Ambiente con la corrección | `0,1` y sol `0,9`: la sombra se ve al `0,1^(1/2,2)` = 35 % (con 0,3 sería 58 %). |
 | Shader, no hardware | `pow` en el shader: se apaga con `C`. Las texturas siguen en `GL_RGBA8`; con `GL_SRGB8_ALPHA8` además, se convertiría **dos veces**. |
+| Halo del sol | Disco de 2° (el real mide 0,53°: se veía muy chico) + corona + aureola alrededor de `uSolDir`, sumados al cielo en lineal y proporcionales a `uSolColor`. Tecla `Y`. |
+| Dos soles | El sol pintado es parte de la foto y no se mueve; el halo está donde está la luz. Coinciden al arrancar (y con `H`); con `O`/`P` se separan. |
+| Bruma hacia el sol | `color_niebla(dir)`: la niebla se aclara mirando hacia el sol (dispersión hacia adelante). La usan el suelo lejano y el cielo del horizonte: sin costura. |
+| O/P y los 90° | O/P mueven la **elevación** (0° horizonte, 90° cenit). El recorrido completo (sale, mediodía, se pone, noche) es la **hora** del día/noche: un ángulo de 0° a 360° alrededor de un eje horizontal. |
+| ¿El sol y la bruma iluminan el terreno y el avión? | La **luz** del sol sí (difusa y especular). El **halo** no: es solo del cielo. La **bruma** cambia el color de la **niebla** hacia el sol, así que aclara solo lo lejano (nada al avión, +0,12 a 3 km, +0,39 a 20 km). |
 
 ---
 
@@ -469,3 +474,105 @@ Las dos formas son válidas (lo dice la guía). Se eligió el **shader** (decisi
 - Con 0,1 la sombra vuelve a estar cerca del 30 % de antes, pero lo iluminado queda **más claro** que en la Parte 4 (76 % contra 65 %): el terreno se parece más al del Práctico 08 (consulta 3).
 - Siguen sumando 1: una cara de frente al sol llega justo a `kd` y no se quema.
 
+
+---
+
+# Consultas del opcional "halo del sol"
+
+## 20. ¿Por qué hay dos soles? Si el sol pintado no se ve, ¿el halo no sería el sol pintado?
+
+**El sol pintado sí se ve:** es la zona grande de nubes blancas con rayos del cubemap. Lo que no se ve es el **halo encima de él**: esa zona de la foto ya es blanco saturado, y blanco más luz sigue siendo blanco (la pantalla recorta en 1).
+
+**Son dos cosas distintas:**
+- el **sol pintado** es parte de la **foto** del cielo: está siempre en el mismo lugar (29,8° de elevación) y no ilumina nada;
+- el **halo** lo dibuja el shader en `uSolDir`, la dirección de la que viene la **luz** que ilumina la escena.
+
+Que se vea uno o dos depende de dónde esté la luz:
+
+| Situación | Sol pintado | Halo | Qué se ve |
+|---|---|---|---|
+| Al arrancar, o después de **H** (luz a 29,8°) | a 29,8° | a 29,8°, encima del pintado | **Un sol**: el halo queda escondido adentro del pintado |
+| Con **O/P** (por ejemplo, luz a 5°) | sigue a 29,8° | a 5° | **Dos**: el pintado, que ya no ilumina nada, y el halo, que marca de dónde viene la luz |
+| Degradé (**K**) | no hay | en la dirección de la luz | **Un sol**: el halo |
+
+Coinciden al arrancar a propósito: la luz empieza en la dirección del sol pintado (`Skybox::direccion_sol()`, Parte 2). Al moverla con O/P, el pintado no puede seguirla porque es una imagen. Para que nunca hubiera dos soles, habría que **borrar** el sol de las imágenes del cubemap (editarlas); oscurecerlo en el shader dejaría una mancha, porque el sol pintado es una zona grande con rayos, no un disco. Ver la imagen 20 de `Practico09-Decisiones.md`.
+
+## 21. ¿Por qué la bruma se aclara cuando se mira hacia el sol?
+
+**Porque el aire dispersa la luz sobre todo hacia adelante.** Las partículas de la bruma (gotitas, polvo) desvían la luz del sol, pero la mayor parte apenas unos pocos grados de la dirección en que venía. Entonces:
+- **mirando hacia el sol**, llega al ojo mucha luz dispersada: el aire brilla. Es el halo alrededor del sol, y es la bruma luminosa del horizonte a contraluz (al atardecer, mirando hacia el sol, el horizonte se ve claro);
+- **de espaldas al sol**, llega poca: la bruma se ve de su color de siempre.
+
+**Cómo se hizo:** al color de la niebla se le suma un brillo que crece cuando la vista se acerca al sol, `uSolColor · 0,5 · max(dir · L, 0)^8` (cae a la mitad a ~23° del sol). Está en `color_niebla(dir)`, en el código común.
+
+**Por qué en el código común y no solo en el cielo:** si el brillo se agregara solo al cielo, con el sol bajo el cielo del horizonte brillaría y el suelo lejano, justo abajo, no: una **costura** en el horizonte (es la opción "b" que se descartó). Como `aplicar_niebla()` (el suelo lejano) y la mezcla del cielo del horizonte usan la **misma** función con la **misma** dirección, en el horizonte valen lo mismo. Es la misma idea de la Parte 1: lo que tiene que coincidir se escribe una sola vez.
+
+**Con el sol en su lugar casi no se nota** (la franja del horizonte hacia el sol se aclara unos 11 niveles de 255; de espaldas al sol, nada). Se nota con el sol bajo, y va a ser el brillo del atardecer en el día/noche.
+
+## 22. ¿Por qué el disco mide 2° si el sol real mide 0,53°? ¿Y por qué el resplandor es tan suave?
+
+**Con el tamaño real se veía muy chico.** Visto desde la Tierra, el sol mide 0,53°, lo mismo que la Luna. Con la cámara de 45° en 600 px, 1° son ~12,6 px: un disco de 0,53° mide **~7 px**. Se probó primero así (decisión 21) y se veía como un punto.
+
+**Por qué el sol "normal" parece más grande que su tamaño real.** El sol encandila: es tan brillante que su luz se desparrama en el ojo (o en la lente de una cámara) y lo vemos como una mancha varias veces más grande que el disco. Una pantalla no llega ni cerca de ese brillo, así que un disco del tamaño geométrico real se ve chico y apagado. Por eso los simuladores y los juegos dibujan el sol **más grande**. Se agrandó a **2°** (~25 px; medido, ~29 px, porque cae lejos del centro de la pantalla, donde la perspectiva estira un poco). Es la otra opción que se había planteado en la pregunta 2. Es un solo número en `fondo.fs` (`SOL_RADIO`).
+
+**El resplandor es suave para que el disco se vea.** El cielo ya es claro: el azul del degradé alrededor del sol vale ~0,87 en pantalla (~0,7 en lineal), cerca del tope. El primer intento tenía la corona al 100 % de `uSolColor`, y todo lo que quedaba a menos de ~1,4° del sol pasaba de 1 en los tres canales: la pantalla lo recortaba a blanco y quedaba una **mancha de 34 px** con el disco escondido adentro. Con el resplandor junto al borde del disco en ~0,25, alrededor queda un celeste muy claro y el disco, blanco, se distingue. Es lo mismo que pasa con una foto del sol: si la exposición es alta, el sol es una mancha blanca enorme; para ver el disco hay que bajarla.
+
+## 23. ¿Por qué el sol no pasa de 90° con O/P? ¿No debería poder hacer los 180°?
+
+**No es un error: O/P mueven la elevación.** La elevación es el ángulo del sol **sobre el horizonte**, y por definición va de 0° (en el horizonte) a 90° (el **cenit**, justo arriba). Pasado el cenit, el sol no puede "subir más": empieza a **bajar del otro lado**.
+
+**"Hacer 180°" es otra variable: el ángulo a lo largo del recorrido.** El sol sale por un horizonte, pasa por arriba y se pone por el horizonte opuesto:
+
+| Ángulo del recorrido | Elevación | Hacia dónde |
+|---|---|---|
+| 0° | 0°: sale | del lado del sol pintado |
+| 45° | 45° | del lado del sol pintado |
+| 90° | 90°: cenit, mediodía | justo arriba |
+| 135° | 45° | del lado **opuesto** |
+| 180° | 0°: se pone | del lado opuesto |
+| de 180° a 360° | debajo del horizonte | es de **noche** |
+
+**El código ya lo soporta.** `sol_con_elevacion()` arma la dirección como `(cos e · cos acimut, cos e · sin acimut, sin e)`. Con `e` mayor que 90°, `cos e` es negativo: la parte horizontal se da vuelta y el sol pasa solo al lado opuesto. Por ejemplo, `e = 120°` es un sol a 60° de elevación del otro lado. Lo único que lo frena es el tope de las teclas, `kSolElevMax = 90` en `main.cpp`.
+
+**Por qué se limitó así en la Parte 2.** Las teclas eran para la verificación de la guía, comparar un sol alto con uno bajo; la otra mitad del recorrido repite las mismas comparaciones del otro lado. Y debajo de 0° es de noche: Phong no tiene sombras, así que habría que **apagar** el sol para que no ilumine la panza del avión a través del terreno.
+
+**Se resuelve en el día/noche** (opcional 2), porque es justo lo que pide la guía: el sol *"girando alrededor de un eje horizontal: sale, sube hasta el mediodía, baja y se pone"*. La posición del sol pasa a ser la **hora**, un ángulo de 0° a 360°: de 0° a 180° es de día y de 180° a 360°, de noche, con el sol apagado. O/P pasarían a adelantar o atrasar la hora, y el halo, que sigue a la luz, se movería solo. Está anotado en `Practico09-Pendientes.md`, sección 6.
+
+**Una pregunta que va a aparecer entonces.** Con el eje exactamente horizontal, al mediodía el sol pasa por el cenit, como en el ecuador en un equinoccio. En Córdoba (31° S) nunca pasa justo por arriba: al mediodía llega a unos **35°** en invierno y a unos **82°** en verano. Se puede inclinar el eje para imitarlo.
+
+## 24. El sol y su bruma, ¿también afectan la iluminación del terreno, de la niebla y del avión?
+
+**En parte.** Hay tres cosas que dependen del sol y cada una llega a un lugar distinto:
+
+| Qué | Dónde está | ¿Afecta al terreno y al avión? |
+|---|---|---|
+| **La luz del sol** (`uSolDir`, `uSolColor`) | difusa y especular en `iluminacion.glsl` (Partes 2 y 3) | **Sí, y es lo principal**: según hacia dónde mira cada cara, queda iluminada o en sombra. |
+| **El halo** (disco, corona y aureola) | `halo_sol()`, solo en `fondo.fs` | **No.** Se pinta solo en el cielo; no ilumina nada. |
+| **La bruma** hacia el sol (consulta 21) | `color_niebla()`, que usa `aplicar_niebla()` | **Sí, pero a través de la niebla**, no como iluminación. |
+
+**Cómo actúa la bruma.** No cambia cómo está iluminado un objeto: cambia el **color de la niebla** con el que se mezcla. Al final de `terreno.fs`, `aeronave.fs` y del suelo lejano de `fondo.fs`, cada píxel pasa por `aplicar_niebla()`:
+
+```glsl
+return mix(color, color_niebla(dir), f);   // f = 1 − e^(−d/V)
+```
+
+`color_niebla(dir)` es el color normal de la niebla **más** un brillo si `dir` (del ojo al píxel) apunta cerca del sol. Mirando hacia el sol, lo lejano se funde con una niebla más clara; para el otro lado, con la niebla de siempre.
+
+**Cuánto se nota depende de la distancia**, porque lo que pesa es `f`. Con V = 10 km y mirando justo hacia el sol, la bruma le suma a la niebla 0,5 × 0,9 = 0,45; al objeto le llega `f` veces eso:
+
+| Distancia | `f` | Cuánto aclara la bruma (lineal) |
+|---|---|---|
+| Avión (unas decenas de metros) | ~0,003 | nada visible |
+| 1 km | 0,10 | +0,04 |
+| 3 km | 0,26 | +0,12 |
+| 10 km | 0,63 | +0,28 |
+| 20 km (borde del terreno) | 0,86 | +0,39 |
+
+En la práctica:
+- **El avión** no cambia: está demasiado cerca para tener niebla.
+- **El terreno cercano** casi no cambia.
+- **El terreno lejano y el horizonte** del lado del sol se ven más claros, como a contraluz en un día brumoso.
+
+La franja de niebla del cielo usa la misma función, y por eso no hay un corte en el horizonte (consulta 21).
+
+**Para verlo:** con el sol bajo (`O`), mirar hacia él y alternar `Y` entre "COMPLETO" y "solo el halo del CIELO". En el segundo modo la niebla es de un solo color y el horizonte del lado del sol deja de brillar; el avión y el terreno cercano quedan iguales.

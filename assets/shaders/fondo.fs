@@ -50,6 +50,17 @@
 //     las dos conversiones, a_srgb(a_lineal(c)) = c: el cielo se ve IGUAL con
 //     y sin la corrección (es una verificación de la guía);
 //   - el SUELO CONTINUADO: la textura del pasto a lineal, igual que la malla.
+//
+// Práctico 09, opcional "HALO DEL SOL" (decisiones 20 a 24, tecla Y):
+//   - halo_sol(d): un DISCO de 2° (el real mide 0,53°: se veía muy chico) y un RESPLANDOR
+//     alrededor de uSolDir, la dirección de la que viene la luz. Se SUMA al
+//     cielo en lineal (es luz). Se ve sobre el degradé (que no tiene sol) y
+//     cuando O/P alejan la luz del sol pintado; sobre el sol pintado casi no
+//     se ve, porque esa zona de la foto ya es blanco saturado.
+//   - cerca del horizonte el halo se funde con la niebla como el resto del
+//     cielo, y la mezcla usa color_niebla(d) (código común), la misma que el
+//     suelo lejano: con la tecla Y en "completo", la bruma se aclara hacia el
+//     sol, en el cielo y en el suelo por igual (sin costura).
 // -----------------------------------------------------------------------------
 
 // ENTRADA (in): la dirección de este píxel, interpolada desde fondo.vs (en el
@@ -73,9 +84,9 @@ uniform int   uNieblaCielo;      // P09, Parte 4: 1 = el cielo se funde con la n
                                  // horizonte; 0 = no, como el P08 (tecla J, para comparar)
 
 // La luz (uSolDir, uSolColor, uAmbiente, uModoSuelo, iluminar_suelo), la niebla
-// (uNieblaColor, uVisibilidad, aplicar_niebla), la posición del ojo en mundo
-// (uOjo) y la corrección gamma (uGamma, a_lineal, a_srgb; Parte 5) vienen de
-// iluminacion.glsl.
+// (uNieblaColor, uVisibilidad, aplicar_niebla, color_niebla), la posición del
+// ojo en mundo (uOjo), la corrección gamma (uGamma, a_lineal, a_srgb; Parte 5)
+// y el modo del halo (uHalo, tecla Y) vienen de iluminacion.glsl.
 
 // Dirección de NUESTRA escena (Z arriba) -> convención del cubemap (Y arriba).
 // (x, y, z) -> (x, z, -y) es una ROTACIÓN de -90° alrededor del eje X: lleva
@@ -92,6 +103,70 @@ uniform int   uNieblaCielo;      // P09, Parte 4: 1 = el cielo se funde con la n
 vec3 a_cubemap(vec3 d)
 {
     return vec3(d.x, d.z, -d.y);
+}
+
+// --- Opcional: el HALO DEL SOL (decisiones 20, 21 y 22) ----------------------
+// El sol "de la luz": un disco y un resplandor alrededor de uSolDir, la
+// dirección de la que viene la luz que ilumina la escena (la misma L de
+// iluminar()). El cubemap trae un sol PINTADO, pero es parte de la foto: no se
+// mueve con O/P ni con la hora, y el degradé (tecla K) no tiene ninguno. El
+// halo marca siempre de dónde viene la luz de verdad.
+//
+// Todo se mide con el ÁNGULO entre la dirección del píxel (d) y la del sol:
+//   coseno = d · uSolDir   (las dos unitarias)   ->   ángulo = acos(coseno)
+//
+// 1. DISCO (decisión 21): 2° de diámetro, radio 1°. Con la cámara de 45° de
+//    campo vertical en 600 px, 1° son ~12,6 px: el disco mide ~25 px.
+//    Visto desde la Tierra el sol mide 0,53° (radio 0,265°), y se probó
+//    primero así: ~7 px, que se veían MUY CHICOS. El sol que percibimos parece
+//    más grande que su tamaño geométrico porque encandila: su luz se
+//    desparrama en el ojo (o en la lente) y lo agranda. La pantalla no puede
+//    reproducir ese brillo, así que, como en los simuladores y los juegos, el
+//    disco se dibuja más grande (unas 4 veces).
+//    El borde se suaviza con smoothstep en ~0,16° (~2 px): sin eso quedaría
+//    escalonado, porque el MSAA solo suaviza los bordes de los triángulos, no
+//    lo que pinta el shader adentro de uno.
+//    Su brillo (K_DISCO) es MUCHO mayor que el del cielo: el sol real es
+//    miles de veces más brillante. Pasado 1, la pantalla lo recorta: el disco
+//    queda blanco aunque esté sobre una nube clara.
+// 2. RESPLANDOR (decisión 20): la luz del sol que el aire dispersa apenas
+//    hacia los costados (la misma física que la bruma de color_niebla, pero
+//    de cerca del sol). Dos términos con la forma max(coseno, 0)^n, que vale
+//    1 en el sol y cae con el ángulo; cuanto más grande n, más angosto:
+//      corona  : n = 500 -> cae a la mitad a ~3°: el brillo pegado al disco
+//                (con el disco de 0,53° era n = 2000, mitad a ~1,5°; con el
+//                disco de 2° quedaba casi toda adentro y se ensanchó);
+//      aureola : n = 40  -> cae a la mitad a ~11°: el cielo más claro alrededor.
+//    Sus brillos son BAJOS a propósito: junto al borde del disco suman ~0,25
+//    (de 1). El cielo ya es claro (el azul del degradé alrededor del sol vale
+//    ~0,87 en pantalla, ~0,7 en lineal: le falta poco para el tope); con un
+//    resplandor fuerte, todo alrededor del sol se recorta a blanco y el disco
+//    se pierde adentro de una mancha. Probado: con la corona en 1,0 la mancha
+//    blanca medía 34 px (~2,7°) y el disco de 7 px no se distinguía. Con
+//    ~0,25 alrededor queda un celeste muy claro y el disco, blanco, se ve.
+//
+// Todo es proporcional a uSolColor (decisión 22): si el sol cambia de color o
+// se apaga, el halo lo sigue. Es LUZ que se suma al cielo, en LINEAL (después
+// de a_lineal(cielo) y antes de a_srgb), como toda la luz desde la Parte 5.
+const float SOL_RADIO = radians(1.0);      // radio angular del disco: diámetro 2° (el real: 0,53°)
+const float SOL_BORDE = radians(0.08);     // medio ancho del borde suavizado (~2 px en total)
+const float K_DISCO   = 20.0;              // brillo del disco (satura a blanco)
+const float K_CORONA  = 0.15;              // brillo de la corona, junto al disco
+const float N_CORONA  = 500.0;             // ancho de la corona: mitad a ~3°
+const float K_AUREOLA = 0.12;              // brillo de la aureola
+const float N_AUREOLA = 40.0;              // ancho de la aureola: mitad a ~11°
+
+vec3 halo_sol(vec3 d)
+{
+    float coseno = dot(d, uSolDir);                      // 1 = mirando justo al sol
+    float angulo = acos(clamp(coseno, -1.0, 1.0));       // ángulo con el sol, radianes
+    // Disco: 1 adentro, 0 afuera, con el borde suavizado.
+    float disco  = 1.0 - smoothstep(SOL_RADIO - SOL_BORDE, SOL_RADIO + SOL_BORDE, angulo);
+    float c      = max(coseno, 0.0);                     // del lado opuesto al sol, nada
+    float brillo = K_DISCO * disco
+                 + K_CORONA * pow(c, N_CORONA)
+                 + K_AUREOLA * pow(c, N_AUREOLA);
+    return uSolColor * brillo;
 }
 
 void main()
@@ -114,6 +189,15 @@ void main()
     // mezcla con la niebla de abajo se hace en lineal, como en el resto.
     cielo = a_lineal(cielo);
 
+    // Opcional (tecla Y): el HALO DEL SOL, sumado en lineal (es luz). En los
+    // modos "completo" y "solo el cielo"; en "sin halo", no. Se suma ANTES de
+    // la mezcla con la niebla de abajo: cerca del horizonte se funde con la
+    // niebla como el resto del cielo (decisión 23), y no queda cortado en seco
+    // contra el suelo cuando el sol está bajo.
+    if (uHalo != 2) {
+        cielo += halo_sol(d);
+    }
+
     // P09 (Parte 4): NIEBLA EN EL CIELO, solo en los primeros grados sobre el
     // horizonte. Con d unitaria, d.z es el SENO de la elevación (la guía dice
     // d.y porque usa Y arriba). smoothstep(0, 0.10, d.z) sube de 0 a 1, con
@@ -124,9 +208,14 @@ void main()
     // que el suelo lejano (f -> 1): no queda ninguna línea entre los dos. Más
     // arriba de 5,7° el cielo queda como está. Con la niebla apagada (N,
     // uVisibilidad <= 0) o con J en "cielo sin niebla", no se mezcla.
+    // Opcional "halo del sol": el color de la niebla es color_niebla(d) (código
+    // común), el MISMO que usa aplicar_niebla() para el suelo lejano en esta
+    // dirección. Con la tecla Y en "completo" se aclara hacia el sol; como el
+    // cielo y el suelo usan la misma función, en el horizonte siguen valiendo
+    // lo mismo.
     if (uVisibilidad > 0.0 && uNieblaCielo == 1) {
         float f_cielo = 1.0 - smoothstep(0.0, 0.10, d.z);   // factor de niebla del cielo
-        cielo = mix(cielo, uNieblaColor, f_cielo);
+        cielo = mix(cielo, color_niebla(d), f_cielo);
     }
 
     // --- 2. Suelo continuado: rayo P(t) = ojo + t d contra el plano ----------

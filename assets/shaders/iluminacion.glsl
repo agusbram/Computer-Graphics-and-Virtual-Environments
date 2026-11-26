@@ -2,7 +2,7 @@
 // iluminacion.glsl — código GLSL COMÚN a los fragment shaders de la escena
 // (Práctico 09: Parte 1, el archivo común; Parte 2, la luz del suelo; Parte 3,
 // el avión y Blinn-Phong; Parte 4, la niebla exponencial; Parte 5, la
-// corrección gamma)
+// corrección gamma; opcional "halo del sol", la bruma que se aclara hacia el sol)
 //
 // El terreno, el avión y el fondo (que pinta el suelo continuado) tienen que
 // usar EL MISMO sol y LA MISMA niebla: si uno usara otro modelo u otros
@@ -55,6 +55,11 @@ uniform float uVisibilidad;   // V: distancia a la que la niebla llega al 63 %, 
 
 // Corrección gamma (Parte 5): ver a_lineal() / a_srgb() al final del archivo.
 uniform int   uGamma;         // 1 = corrección activa (lo correcto); 0 = sin corrección (tecla C)
+
+// Opcional "halo del sol" (tecla Y): ver color_niebla(), más abajo, y halo_sol()
+// en fondo.fs.
+uniform int   uHalo;          // 0 = completo: halo en el cielo + bruma más clara hacia el sol;
+                              // 1 = solo el halo del cielo; 2 = sin halo (como la Parte 5)
 
 // --- Material (Partes 2 y 3) ----------------------------------------------------
 // Coeficientes del modelo de Phong de UN objeto. Es un dato del OBJETO, no de
@@ -174,7 +179,8 @@ vec3 iluminar_suelo(vec3 P, vec3 N, vec3 kd)
 // f = 0: el color iluminado tal cual; f = 1: solo el color de la niebla.
 // Se aplica DESPUÉS de la iluminación: la niebla es el AIRE entre el punto y
 // el ojo, no depende de la orientación de la superficie ni del sol (la niebla
-// no se ilumina).
+// no se ilumina). (Opcional "halo del sol": su COLOR sí se aclara cuando se
+// mira hacia el sol, ver color_niebla(); sigue sin depender de la superficie.)
 //
 // Parte 4 — EXPONENCIAL:  f = 1 - e^(-d/V).
 //   Cada tramo de aire de largo V deja pasar la MISMA fracción de la luz del
@@ -192,14 +198,65 @@ vec3 iluminar_suelo(vec3 P, vec3 N, vec3 kd)
 // flotante: P y uOjo relativos al avión; la resta da lo mismo). Por eso, a una
 // altura h sobre el terreno, el punto más cercano del suelo ya está a d >= h
 // (ver Practico09-Decisiones.md, Parte 4: la altitud).
+//
+// Opcional "halo del sol": el COLOR de la niebla ya no es uno solo, depende de
+// hacia dónde se mira (más claro hacia el sol): color_niebla(dir), más abajo.
+vec3 color_niebla(vec3 dir);                // declarada acá, definida más abajo
+
 vec3 aplicar_niebla(vec3 color, vec3 P)
 {
     if (uVisibilidad <= 0.0) {              // tecla N: niebla apagada
         return color;
     }
-    float d = length(P - uOjo);             // distancia del punto al ojo (unidades de escena)
+    vec3  v = P - uOjo;                     // del ojo al punto
+    float d = length(v);                    // distancia del punto al ojo (unidades de escena)
     float f = 1.0 - exp(-d / uVisibilidad); // factor de niebla, en [0, 1)
-    return mix(color, uNieblaColor, f);
+    // La DIRECCIÓN del ojo al punto (unitaria), para el color de la niebla. Si
+    // el punto estuviera justo en el ojo (d = 0), f = 0 y el color de la niebla
+    // no se usa: cualquier dirección sirve, pero hay que evitar dividir por 0.
+    vec3 dir = (d > 0.0) ? v / d : vec3(0.0, 0.0, 1.0);
+    return mix(color, color_niebla(dir), f);
+}
+
+// --- La BRUMA HACIA EL SOL (opcional "halo del sol", decisión 23) ----------------
+// El aire no dispersa la luz por igual en todas las direcciones: las partículas
+// de la bruma la desvían sobre todo HACIA ADELANTE, pocos grados respecto de la
+// dirección en que venía. Por eso, mirando hacia el sol, el aire brilla. Es lo
+// que hace el HALO alrededor del sol en el cielo (halo_sol, en fondo.fs), y es
+// también la bruma luminosa del horizonte a contraluz: al atardecer, mirando
+// hacia el sol, el horizonte se ve claro; dándole la espalda, no.
+//
+// Acá se imita sumando al color de la niebla un brillo que crece cuando la
+// dirección de la vista se acerca a la del sol:
+//   color(dir) = uNieblaColor + uSolColor · K_BRUMA · max(dir · L, 0)^N_BRUMA
+//   dir: la dirección del ojo hacia el punto (unitaria); L = uSolDir.
+// Con N_BRUMA = 8 el brillo cae a la mitad a unos 23° del sol (cos 23,5° =
+// 0,917 y 0,917^8 = 0,5) y casi no queda a 60° (0,5^8 = 0,004). Es mucho más ANCHO que el halo del cielo: es el aire de muchos
+// kilómetros, que dispersa en un cono más abierto que el de alrededor del sol.
+//
+// QUIÉN LO USA: todo lo que usa la niebla. aplicar_niebla() (terreno, avión y
+// suelo continuado) y la mezcla del cielo cerca del horizonte (fondo.fs). Como
+// el suelo lejano y el cielo del horizonte usan la MISMA función con la MISMA
+// dirección, en el horizonte valen lo mismo y no aparece ninguna costura
+// (aunque el sol esté bajo: ahí es donde más se nota).
+//
+// Es LUZ que se SUMA (en lineal, como toda la luz: uNieblaColor ya llega en
+// lineal) y es proporcional a uSolColor (decisión 22): si el sol cambia de
+// color o se apaga (día/noche), la bruma lo sigue. Tampoco hay que pasarla a
+// lineal: uSolColor ya es una proporción de luz.
+// Con la tecla Y en "solo el cielo" o "sin halo" (uHalo != 0), el color de la
+// niebla vuelve a ser uNieblaColor, como en la Parte 5.
+const float K_BRUMA = 0.5;   // brillo de la bruma mirando justo hacia el sol (proporción de uSolColor)
+const float N_BRUMA = 8.0;   // exponente: más alto = brillo más concentrado alrededor del sol
+
+vec3 color_niebla(vec3 dir)
+{
+    vec3 c = uNieblaColor;
+    if (uHalo == 0) {
+        float coseno = max(dot(dir, uSolDir), 0.0);   // 1 mirando al sol, 0 a 90° de él o más
+        c += uSolColor * K_BRUMA * pow(coseno, N_BRUMA);
+    }
+    return c;
 }
 
 // --- CORRECCIÓN GAMMA (Parte 5) --------------------------------------------------
