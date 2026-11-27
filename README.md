@@ -81,6 +81,13 @@ que se desarrollan los prácticos del proyecto integrador
     `O`/`P`; el sol pintado del cubemap no se mueve). La bruma se aclara hacia
     el sol en el suelo lejano y en el cielo del horizonte por igual (sin
     costura). Tecla `Y`.
+  - *Opcional: ciclo día/noche* (paso 1 de 4 ✔): el sol gira alrededor de un
+    eje horizontal según la **hora** (sale a las 6:00, cenit a las 12:00, pasa
+    por el sol pintado a las 16:00 y se pone a las 18:00), con un reloj (tecla
+    `D`: detenido / un día en 2 min / en 30 s). Su color sale de la misma ley que
+    la niebla, por canal (el aire atenúa más el azul): amarillo, naranja y rojo
+    cerca del horizonte, y **apagado** debajo de él. Módulo `DiaNoche`. Siguen
+    la noche, el crepúsculo y las estrellas.
 
 ---
 
@@ -112,8 +119,10 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
   cubemap ↔ degradé; `G` = suelo continuado; `1` = solo el nivel fino del LOD;
   `RePág`/`AvPág` = altura sobre el terreno (para medir la banda).
 - **Teclado (Práctico 09)**: `B` = luz del suelo (con luz / sin luz / normal
-  constante); `O`/`P` = bajar/subir el sol (5° por pulsación); `H` = volver al
-  sol pintado del cubemap; `V` = normales del avión como color; `X` = normales
+  constante); `D` = reloj del día (detenido / normal: un día en 2 min / rápido:
+  30 s); `O`/`P` = atrasar/adelantar la hora 20 min (en la Parte 2 bajaban y
+  subían el sol; a la tarde, `P` lo baja); `H` = la hora del sol pintado del
+  cubemap (16:00); `V` = normales del avión como color; `X` = normales
   del avión con `M` en lugar de la matriz normal (el error); `R` = Phong ↔
   Blinn-Phong; `J` = color de la niebla (horizonte / gris / cielo sin niebla);
   `C` = corrección gamma (activa / apagada); `Y` = halo del sol (completo /
@@ -148,6 +157,7 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
 │       ├── Shader.h/.cpp       # dueño del programa linkeado + uniforms (DSA); P09: varios archivos por etapa
 │       ├── ShaderSource.h      # fuente de un programa: lista de archivos por etapa (P09)
 │       ├── Iluminacion.h/.cpp  # sol + niebla de la escena: un solo lugar en la CPU (P09)
+│       ├── DiaNoche.h/.cpp     # reloj del día: el sol gira, se calienta y se apaga (P09, opcional)
 │       ├── Primitives.h/.cpp   # cube(), cylinder(), cone() (ápice por gajo, P09) y sphere() (opcional)
 │       ├── Aircraft.h/.cpp     # modelo de la aeronave: piezas + locales + pose (+ material por apariencia, P09)
 │       ├── Material.h          # {kd, ks, ns}: coeficientes de Phong de una pieza (P09)
@@ -165,7 +175,8 @@ make            # compila en build/ y genera bin/ogl-app (incluye dlfdm y FastNo
 ├── tests/
 │   ├── main_test_rm.cpp        # test standalone del ResourceManager
 │   ├── main_test_primitives.cpp# verificación de winding por producto vectorial
-│   └── main_test_normales.cpp  # normales: borde x 2 del terreno, ápice del cono, matriz normal (P09)
+│   ├── main_test_normales.cpp  # normales: borde x 2 del terreno, ápice del cono, matriz normal (P09)
+│   └── main_test_dia_noche.cpp # día/noche: recorrido, reloj, color del sol, hora como texto (P09)
 ├── third_party/
 │   ├── glad/               # cargador de funciones OpenGL
 │   ├── FastNoiseLite/      # ruido procedural para el heightmap (Práctico 07)
@@ -294,6 +305,19 @@ Verificación por cálculo de las normales (sin OpenGL):
 ```bash
 g++ -std=c++17 -Wall -Wextra -I./src -I./third_party/FastNoiseLite \
     src/core/Primitives.cpp tests/main_test_normales.cpp -o build/test_normales && ./build/test_normales
+```
+
+`tests/main_test_dia_noche.cpp` (Práctico 09, opcional día/noche) verifica el
+reloj del día sin abrir una ventana: el **recorrido** (sale en el horizonte
+opuesto al sol pintado, pasa por el cenit, por el pintado a las 16:00 y se pone
+de su lado; la dirección es unitaria y perpendicular al eje a toda hora), el
+**reloj** (detenido, 3°/s y 12°/s; O/P dan la vuelta), el **color** (masa de
+aire 1 en el cenit y ~40 en el horizonte; el azul cae más que el rojo; apagado
+debajo del horizonte) y la hora como texto.
+
+```bash
+g++ -std=c++17 -Wall -Wextra -I./src src/core/DiaNoche.cpp tests/main_test_dia_noche.cpp \
+    -o build/test_dia_noche && ./build/test_dia_noche
 ```
 
 ## Armado de la aeronave (Práctico 04)
@@ -467,7 +491,7 @@ Se hace **parte por parte**. Hecho hasta ahora:
 | **Parte 2:** `iluminacion.glsl` | `iluminar_suelo(P, N, kd)`: el material del suelo (`kd` = textura, `ks` = 0) escrito **una vez** para la malla y el suelo continuado, y el modo de la tecla `B` (`uModoSuelo`). |
 | **Parte 2:** `terreno.vs/.fs`, `fondo.fs` | La malla se ilumina con la normal en mundo (`vNormalMundo`; sin matriz normal: el modelo del terreno es solo una traslación). El suelo continuado, con la normal del plano (0, 0, 1). |
 | **Parte 2:** `Terrain`, `Vertex`, `Mesh` | Grilla de alturas con **margen** de 2 nodos: diferencias centrales en todos los vértices. Atributo nuevo `normal_gruesa` (location 4): `terreno.vs` mezcla la normal con el **mismo α** del morph. En `generar_malla_terreno`, borde × 2. |
-| **Parte 2:** `main.cpp`, `Iluminacion` | Sol con la orientación del pintado y elevación elegida (`sol_con_elevacion`); teclas `B`, `O`/`P`, `H`. |
+| **Parte 2:** `main.cpp`, `Iluminacion` | Sol con la orientación del pintado y elevación elegida (`sol_con_elevacion`; desde el día/noche lo reemplaza `DiaNoche`); teclas `B`, `O`/`P`, `H`. |
 | **Parte 3:** `Material.h` (nuevo), `RenderItem` | `Material {kd, ks, ns}` en lugar del color. En `aeronave.fs` es un uniform de tipo struct (`uMaterial.kd`, ...). |
 | **Parte 3:** `aeronave.vs/.fs`, `main.cpp` | Normal en mundo con la **matriz normal** `(M⁻¹)ᵀ`, calculada en la CPU por pieza (`set_uniform(mat3)`). Luz con `iluminar()`; `kd` × textura. Teclas `V`, `X`, `R`. |
 | **Parte 3:** `Aircraft`, `Primitives` | Brillo (`ks`, `ns`) por apariencia. Nariz y cola: **un cono unitario** estirado con `S(r, h, r)` (3 mallas). Ápice del cono: **un vértice por gajo**. |
@@ -476,8 +500,9 @@ Se hace **parte por parte**. Hecho hasta ahora:
 | **Parte 4:** `fondo.fs`, `Skybox`, `main.cpp` | El cielo se mezcla con la niebla en los primeros 5,7° (`1 − smoothstep(0, 0.10, d.z)`). Tecla `J`. Informes de la niebla en el borde del clipmap y del suelo más cercano según la altura. |
 | **Parte 5:** `iluminacion.glsl`, los tres `.fs` | `a_lineal()` / `a_srgb()` (`pow 2,2`, uniform `uGamma`): cada color entra en lineal y el resultado sale en sRGB, después de la niebla. Las normales como color no se convierten. |
 | **Parte 5:** `main.cpp`, `Iluminacion` | El color de la niebla se pasa a lineal en la CPU. Tecla `C`. Reajuste con la corrección activa: ambiente 0,1 / sol 0,9 y `V = 10 km`. |
-| **Opcional (halo):** `fondo.fs` | `halo_sol(d)`: disco de 2° + corona + aureola alrededor de `uSolDir`, sumados al cielo en lineal y proporcionales a `uSolColor`. |
+| **Opcional (halo):** `fondo.fs` | `con_halo_sol(cielo, d)`: disco de 2° + corona + aureola alrededor de `uSolDir`, en lineal y según `uSolColor`. El resplandor se suma; el disco tapa al cielo con el tono del sol (día/noche). |
 | **Opcional (halo):** `iluminacion.glsl`, `Iluminacion`, `main.cpp` | `color_niebla(dir)`: la bruma se aclara hacia el sol; la usan `aplicar_niebla()` y el cielo del horizonte. Uniform `uHalo`, tecla `Y`. |
+| **Opcional (día/noche, paso 1):** `DiaNoche.h/.cpp` (nuevo), `main.cpp` | El reloj del día: la hora como ángulo, el sol que gira alrededor de un eje horizontal (`glm::rotate`) y su color (`0,9 · e^(−τ·(masa − 1))` por canal, apagado debajo del horizonte). Teclas `D`, `O`/`P` (la hora) y `H`; la hora en el título. Se borró `sol_con_elevacion()`. |
 
 - **Parte 1 = reorganización:** la imagen sale igual que en el P08 (verificado con capturas). La niebla sigue siendo lineal hasta la Parte 4.
 - **Parte 2 = el terreno iluminado:** verificado con los tres modos de `B` desde la misma cámara, el sol bajo y alto, el brillo igual a los dos lados del borde malla/suelo continuado y la normal como color en el borde de los anillos (con capturas en `docs-p09/img/`).
@@ -485,6 +510,7 @@ Se hace **parte por parte**. Hecho hasta ahora:
 - **Parte 4 = la niebla exponencial:** verificado con la niebla gris (aparece la franja), el cielo sin niebla (vuelve la línea del P08), el borde del clipmap con y sin niebla, y el contraste del terreno medido a varias alturas.
 - **Parte 5 = la corrección gamma:** verificado con la misma vista con y sin `C` (el cielo sale igual: diferencia media 0,04 sobre 255), el avión con sus tres apariencias, y las dos fallas de la guía provocadas a propósito en una copia de los shaders (cielo lavado, franja en el horizonte). El ambiente y la visibilidad se eligieron midiendo varias opciones sobre el mismo cuadro.
 - **Opcional: halo del sol:** verificado sobre el degradé (disco de ~29 px medido), con el sol bajo (dos soles con `O`/`P`; sin costura en el horizonte con los tres modos de `Y`), con `J` en gris (la franja sigue apareciendo) y en la vista normal (de espaldas al sol no cambia nada).
+- **Opcional: día/noche, paso 1:** verificado con el test (36 de 36), el atardecer de a 20 minutos (el disco pasa de blanco a amarillo y naranja, y se esconde detrás de las lomas), el terreno y el avión de espaldas al sol (oliva y naranja con el sol bajo; de noche, solo la luz ambiente y nada desde abajo), el reloj con y sin pausa y la imagen de arranque (difiere 0,1 a 0,5 niveles de la del halo).
 - **Arreglo:** un shader que no compila ya no hace caer el programa (se lanza una excepción en vez de cerrar la ventana antes de destruir los `Shader`).
 
 Ver [`Practico09-Decisiones.md`](Practico09-Decisiones.md) y [`Practico09-Consultas.md`](Practico09-Consultas.md).
@@ -494,14 +520,15 @@ Ver [`Practico09-Decisiones.md`](Practico09-Decisiones.md) y [`Practico09-Consul
 - [`Arquitectura-Proyecto.md`](Arquitectura-Proyecto.md) — arquitectura en capas
   del proyecto (aplicación / sistemas / datos), destino del simulador.
 - [`Practico09-Decisiones.md`](Practico09-Decisiones.md) — iluminación y niebla:
-  las 24 decisiones de diseño (15 antes de implementar, 2 al empezar la Parte 3,
-  2 en la Parte 5 y 5 del halo del sol) y cada parte hecha
+  las 31 decisiones de diseño (15 antes de implementar, 2 al empezar la Parte 3,
+  2 en la Parte 5, 5 del halo del sol y 7 del día/noche) y cada parte hecha
   (Parte 1: código GLSL común, `#version` y `#line`, struct `Iluminacion`;
   Parte 2: el terreno iluminado, material del suelo, normales del clipmap;
   Parte 3: el avión iluminado, material, matriz normal, ápice del cono;
   Parte 4: niebla exponencial, visibilidad elegida, niebla en el cielo;
   Parte 5: corrección gamma, qué se convierte, reajuste de la luz y la niebla;
-  opcional 1: halo del sol, los dos soles, la bruma hacia el sol).
+  opcional 1: halo del sol, los dos soles, la bruma hacia el sol;
+  opcional 2: día/noche, la hora como ángulo, el color del sol por el aire).
 - [`Practico09-Consultas.md`](Practico09-Consultas.md) — FAQ del P09.
 - [`Practico08-Decisiones.md`](Practico08-Decisiones.md) — texturas y cielo:
   `ImageData`/`load_image` (flip, RGBA, `unload_image`), módulo `Texture` (4 etapas

@@ -56,8 +56,8 @@ uniform float uVisibilidad;   // V: distancia a la que la niebla llega al 63 %, 
 // Corrección gamma (Parte 5): ver a_lineal() / a_srgb() al final del archivo.
 uniform int   uGamma;         // 1 = corrección activa (lo correcto); 0 = sin corrección (tecla C)
 
-// Opcional "halo del sol" (tecla Y): ver color_niebla(), más abajo, y halo_sol()
-// en fondo.fs.
+// Opcional "halo del sol" (tecla Y): ver color_niebla(), más abajo, y
+// con_halo_sol() en fondo.fs.
 uniform int   uHalo;          // 0 = completo: halo en el cielo + bruma más clara hacia el sol;
                               // 1 = solo el halo del cielo; 2 = sin halo (como la Parte 5)
 
@@ -222,7 +222,7 @@ vec3 aplicar_niebla(vec3 color, vec3 P)
 // El aire no dispersa la luz por igual en todas las direcciones: las partículas
 // de la bruma la desvían sobre todo HACIA ADELANTE, pocos grados respecto de la
 // dirección en que venía. Por eso, mirando hacia el sol, el aire brilla. Es lo
-// que hace el HALO alrededor del sol en el cielo (halo_sol, en fondo.fs), y es
+// que hace el HALO alrededor del sol en el cielo (con_halo_sol, en fondo.fs), y es
 // también la bruma luminosa del horizonte a contraluz: al atardecer, mirando
 // hacia el sol, el horizonte se ve claro; dándole la espalda, no.
 //

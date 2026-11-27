@@ -46,7 +46,7 @@ Preguntas frecuentes del **Práctico 09 (iluminación y niebla)**, en el mismo f
 | Halo del sol | Disco de 2° (el real mide 0,53°: se veía muy chico) + corona + aureola alrededor de `uSolDir`, sumados al cielo en lineal y proporcionales a `uSolColor`. Tecla `Y`. |
 | Dos soles | El sol pintado es parte de la foto y no se mueve; el halo está donde está la luz. Coinciden al arrancar (y con `H`); con `O`/`P` se separan. |
 | Bruma hacia el sol | `color_niebla(dir)`: la niebla se aclara mirando hacia el sol (dispersión hacia adelante). La usan el suelo lejano y el cielo del horizonte: sin costura. |
-| O/P y los 90° | O/P mueven la **elevación** (0° horizonte, 90° cenit). El recorrido completo (sale, mediodía, se pone, noche) es la **hora** del día/noche: un ángulo de 0° a 360° alrededor de un eje horizontal. |
+| O/P y los 90° | Hasta el halo, O/P movían la **elevación** (0° horizonte, 90° cenit). El recorrido completo (sale, mediodía, se pone, noche) es la **hora**: un ángulo de 0° a 360° alrededor de un eje horizontal. Desde el día/noche (paso 1), O/P mueven la hora. |
 | ¿El sol y la bruma iluminan el terreno y el avión? | La **luz** del sol sí (difusa y especular). El **halo** no: es solo del cielo. La **bruma** cambia el color de la **niebla** hacia el sol, así que aclara solo lo lejano (nada al avión, +0,12 a 3 km, +0,39 a 20 km). |
 
 ---
@@ -519,6 +519,8 @@ Coinciden al arrancar a propósito: la luz empieza en la dirección del sol pint
 
 ## 23. ¿Por qué el sol no pasa de 90° con O/P? ¿No debería poder hacer los 180°?
 
+> **Resuelto en el día/noche, paso 1 (26-nov).** O/P ahora mueven la **hora** de a 20 min, sin topes: el sol hace el recorrido entero y de noche se apaga. `sol_con_elevacion()` y `kSolElevMax` ya no existen; la dirección la calcula el módulo `DiaNoche`. Lo de abajo explica por qué antes frenaba en 90°.
+
 **No es un error: O/P mueven la elevación.** La elevación es el ángulo del sol **sobre el horizonte**, y por definición va de 0° (en el horizonte) a 90° (el **cenit**, justo arriba). Pasado el cenit, el sol no puede "subir más": empieza a **bajar del otro lado**.
 
 **"Hacer 180°" es otra variable: el ángulo a lo largo del recorrido.** El sol sale por un horizonte, pasa por arriba y se pone por el horizonte opuesto:
@@ -547,7 +549,7 @@ Coinciden al arrancar a propósito: la luz empieza en la dirección del sol pint
 | Qué | Dónde está | ¿Afecta al terreno y al avión? |
 |---|---|---|
 | **La luz del sol** (`uSolDir`, `uSolColor`) | difusa y especular en `iluminacion.glsl` (Partes 2 y 3) | **Sí, y es lo principal**: según hacia dónde mira cada cara, queda iluminada o en sombra. |
-| **El halo** (disco, corona y aureola) | `halo_sol()`, solo en `fondo.fs` | **No.** Se pinta solo en el cielo; no ilumina nada. |
+| **El halo** (disco, corona y aureola) | `con_halo_sol()`, solo en `fondo.fs` | **No.** Se pinta solo en el cielo; no ilumina nada. |
 | **La bruma** hacia el sol (consulta 21) | `color_niebla()`, que usa `aplicar_niebla()` | **Sí, pero a través de la niebla**, no como iluminación. |
 
 **Cómo actúa la bruma.** No cambia cómo está iluminado un objeto: cambia el **color de la niebla** con el que se mezcla. Al final de `terreno.fs`, `aeronave.fs` y del suelo lejano de `fondo.fs`, cada píxel pasa por `aplicar_niebla()`:

@@ -29,7 +29,8 @@ Mejorar la apariencia de la escena con **iluminación** y **niebla**:
 | 4 | Niebla exponencial (también en el avión y el cielo) | ✔ hecha (25-nov) |
 | 5 | Corrección gamma (y reajuste de la luz y la niebla) | ✔ hecha (25-nov) |
 | Opcional 1 | Halo del sol (y la bruma que se aclara hacia el sol) | ✔ hecho (26-nov) |
-| Opcionales 2 y 3 | día/noche → curvatura de la Tierra | siguen |
+| Opcional 2 | Ciclo día/noche, en 4 pasos. Paso 1: el sol que se mueve (reloj, recorrido, color y apagado) | ✔ paso 1 (26-nov); siguen la noche, el crepúsculo y las estrellas |
+| Opcional 3 | Curvatura de la Tierra | sigue |
 
 La **presentación de avance** es el viernes 27 de noviembre. El objetivo es llegar con las Partes 1 a 5.
 
@@ -86,6 +87,20 @@ Se eligieron todas las recomendadas.
 | 22 | ¿De qué color e intensidad? | **Proporcional a `uSolColor`.** | El halo es la misma luz que ilumina la escena: si el sol cambia de color o se apaga (día/noche), lo sigue solo. |
 | 23 | ¿Qué pasa cerca del horizonte? | El halo del cielo **se funde con la niebla** como el resto del cielo, **y la bruma se aclara hacia el sol** (en los tres programas). | Sin costura con el sol bajo (el cielo y el suelo usan la misma función), y el sol bajo brilla a través de la bruma. Es la misma física que el halo: la dispersión hacia adelante. |
 | 24 | ¿Tecla? | **`Y` con tres modos:** completo / solo el halo del cielo / sin halo. | Como `B` y `J`: permite ver qué aporta cada parte. |
+
+### Decisiones del opcional "ciclo día/noche" (26-nov)
+
+Se eligieron todas las recomendadas. Se implementa en 4 pasos, probando cada uno: el sol que se mueve (25, 26, 27 y 31), la noche (28), el crepúsculo (29) y las estrellas (30).
+
+| # | Pregunta | Decisión | Por qué |
+|---|---|---|---|
+| 25 | ¿Cómo avanza la hora? | **Un reloj en la tecla `D`** con tres velocidades: detenido → normal (un día en 2 min) → rápido (un día en 30 s). Avanza con el tiempo de la **simulación** (la pausa también lo frena). `O`/`P` atrasan y adelantan la hora de a 20 min, sin topes; `H` vuelve a la hora del sol pintado. Arranca **detenido** en esa hora, y la hora se ve en el título de la ventana. | Arrancando detenido en la hora del sol pintado, al abrir el programa la luz viene de donde se ve el sol, como en la Parte 5. Las velocidades sirven para mirar un atardecer con calma o el día entero en medio minuto. Se descartaron solo a mano (sin reloj) y siempre andando. |
+| 26 | ¿Por dónde pasa el sol? | **Eje horizontal** (lo que dice la guía), orientado para que el recorrido pase por el **sol pintado**: sale a las 6:00 del lado opuesto, pasa por el cenit a las 12:00 y se pone a las 18:00 del lado del pintado, que queda como "el sol de las 16:00" (29,8°). | A las 16:00 la luz y el sol pintado coinciden, como pide la Parte 2. Al poner en marcha el reloj, el atardecer llega en ~10 s, del lado donde el cubemap tiene el sol. Se descartaron el pintado como sol de la mañana, el eje inclinado de Córdoba (31° S) y un este-oeste cualquiera (el halo no coincidiría nunca con el pintado). |
+| 27 | ¿Cómo cambian el color y la intensidad del sol? | **Con la misma ley que la niebla:** la luz que cruza el aire se atenúa como `e^(−τ·camino)`, con un τ por canal (dispersión de Rayleigh: más en el azul) y el camino por una capa de aire de 8 km sobre la Tierra esférica. Debajo del horizonte se **apaga**, suave mientras el disco se hunde (de +1° a −1°). | Salen solos el amarillo, el naranja, el rojo y la caída de intensidad, sin elegir colores a ojo. Consecuencia aceptada: a la hora del sol pintado el sol ya es apenas amarillo (al azul le falta un 20 %). Para que el disco del halo también se vea naranja, ahora se pinta con el **tono** del sol. Se descartaron una tabla de colores a mano y un solo `mix` de blanco a naranja. |
+| 28 | ¿Qué tan oscura es la noche? | Un **factor del cielo** según la elevación del sol (1 arriba de 6°, ~0,75 en la puesta, el mínimo desde −12°) que multiplica al cielo, a la niebla y a la luz ambiente. Mínimo ~4 %, azulado, **más una luna llena** del lado opuesto al sol: la misma luz direccional, débil (~8 % del sol) y azulada. | De noche se ve el relieve, no hay que tocar los shaders y el halo dibuja la luna solo. Se descartaron la noche sin luna (casi negra) y la noche negra. *(Paso 2.)* |
+| 29 | ¿Se tiñe el cielo al amanecer y al atardecer? | Además del halo y la bruma (que ya siguen al color del sol), un **degradé del crepúsculo**, armado como el del P08: naranja rosado en el horizonte y azul oscuro arriba. El cielo se mezcla hacia él con el sol cerca del horizonte, y la niebla toma el color del horizonte de esa mezcla (sin franja). | Es el "degradé para teñir el atardecer" de la decisión 14. *(Paso 3.)* |
+| 30 | ¿Estrellas? | **Procedurales en `fondo.fs`:** puntos de 1–2 px en una grilla de direcciones (una función *hash*), que aparecen al oscurecer, se funden con la niebla del horizonte y giran con el mismo eje que el sol. Sobre el cubemap, solo donde el cielo es azul. | Sin bajar ni convertir imágenes (un cubemap de estrellas de Poly Haven pedía convertir el HDRI y sacarle el paisaje). *(Paso 4.)* |
+| 31 | ¿Dónde va el código? | **Un módulo nuevo `DiaNoche`** (`src/core/DiaNoche.h/.cpp`): guarda la hora y la velocidad, y tiene funciones puras para la dirección y el color del sol. No depende de ningún otro módulo: `main` lo avanza en cada cuadro y copia el resultado a `luz`. | Es un "sistema" como los de `Arquitectura-Proyecto.md`, y las cuentas se prueban sin abrir una ventana (`tests/main_test_dia_noche.cpp`). Se descartó dejarlo en `main.cpp`, como el sol de la Parte 2. |
 
 ---
 
@@ -902,7 +917,7 @@ Con la Parte 5 terminan las partes obligatorias del Práctico 09. Siguen los opc
 
 | Pieza | Qué cambió |
 |---|---|
-| `fondo.fs` | `halo_sol(d)`: un **disco** de 2° y un **resplandor** (corona y aureola) alrededor de `uSolDir`, sumados al cielo en lineal. La mezcla del cielo con la niebla usa `color_niebla(d)`. |
+| `fondo.fs` | `halo_sol(d)` (desde el día/noche, `con_halo_sol(cielo, d)`): un **disco** de 2° y un **resplandor** (corona y aureola) alrededor de `uSolDir`, sumados al cielo en lineal. La mezcla del cielo con la niebla usa `color_niebla(d)`. |
 | `iluminacion.glsl` | `color_niebla(dir)`: el color de la niebla **se aclara hacia el sol**. `aplicar_niebla()` lo usa con la dirección del ojo al punto. Uniform `uHalo` (tecla `Y`). |
 | `Iluminacion.h/.cpp` | Campo `halo` → `uHalo`. El informe `[luz]` cuenta 10 uniforms. |
 | `main.cpp` | Tecla **Y** (completo / solo el cielo / sin halo). Al arrancar informa el halo. |
@@ -1010,13 +1025,162 @@ make clean && make && ./bin/ogl-app
 
 1. **La consola** muestra la línea `halo     : ...` y la tecla `Y` en la línea de teclas.
 2. **El sol sobre el degradé:** pausar (`ESPACIO`), apretar **K** (degradé) y girar la cámara (botón izquierdo) hasta encontrar el disco con su resplandor. Con el cubemap (**K** de nuevo), ahí está el sol pintado.
-3. **Dos soles:** volver al cubemap, apretar **O** 4 o 5 veces (sol a 10° o 5°) y mirar hacia el horizonte de ese lado: el disco aparece abajo del sol pintado.
+3. **Dos soles:** volver al cubemap, apretar **P** 4 o 5 veces (sol a 10° o 5°) y mirar hacia el horizonte de ese lado: el disco aparece abajo del sol pintado. *(Hasta el día/noche era **O**, que bajaba el sol. Desde el día/noche, O/P mueven la **hora**: a la tarde, P adelanta la hora y el sol baja.)*
 4. **La tecla Y** con el sol bajo: completo (el horizonte brilla hacia el sol) → solo el cielo (el horizonte no brilla y el disco se hunde en la bruma) → sin halo.
-5. **H** vuelve el sol a su lugar: un solo sol otra vez.
+5. **H** vuelve el sol a su lugar (desde el día/noche, a la hora del sol pintado, 16:00): un solo sol otra vez.
 
 ---
 
-## Lo que sigue: día/noche y curvatura
+## Opcional 2 — Ciclo día/noche
 
-1. **Ciclo día/noche:** el opcional de la guía (el sol gira, se pone anaranjado y se apaga debajo del horizonte; el cielo y la niebla se oscurecen). El halo ya sigue a `uSolColor` y a `uSolDir`: va a ser el sol que se mueve, y la bruma hacia el sol, el brillo del atardecer.
-2. **Curvatura de la Tierra:** el horizonte que baja al subir.
+Es el opcional de la guía:
+
+> Para lograr un ciclo día/noche la dirección del sol puede variar con el tiempo de la simulación: girando alrededor de un eje horizontal, el sol sale, sube hasta el mediodía, baja y se pone, y con eso la iluminación de la escena cambia sola.
+
+Para que sea creíble, la guía pide además que el sol se vuelva **más cálido** cerca del horizonte, que se **apague** debajo de él (Phong no tiene sombras: la panza del avión quedaría iluminada a través del terreno) y que la luz ambiente, el cielo y la niebla se **oscurezcan**.
+
+Se hace en 4 pasos (decisiones 25 a 31), parando para probar cada uno:
+
+| Paso | Qué | Decisiones | Estado |
+|---|---|---|---|
+| 1 | El sol que se mueve: reloj, recorrido, color y apagado | 25, 26, 27 y 31 | ✔ (26-nov) |
+| 2 | La noche: cielo, niebla y ambiente más oscuros, y la luna | 28 | sigue |
+| 3 | El tinte del cielo en el crepúsculo | 29 | sigue |
+| 4 | Las estrellas | 30 | sigue |
+
+Con los pasos 1 y 2 queda todo lo que pide la guía; el 3 y el 4 son los agregados de la decisión 14.
+
+### Paso 1 — El sol que se mueve (decisiones 25, 26, 27 y 31)
+
+#### Resumen de lo que se agregó (paso 1)
+
+| Pieza | Qué cambió |
+|---|---|
+| `src/core/DiaNoche.h/.cpp` (nuevo) | El **reloj del día**: la hora (como ángulo), la velocidad, el recorrido del sol y su color. Funciones libres: `masa_de_aire`, `transmitancia_aire`, `encendido_sol` y `hora_texto`. No depende de OpenGL ni de otros módulos. |
+| `tests/main_test_dia_noche.cpp` (nuevo) | 36 verificaciones del recorrido, el reloj, el color y la hora como texto. |
+| `main.cpp` | Crea el reloj con el sol pintado que midió el Skybox, lo avanza en cada cuadro (salvo con la pausa) y copia la dirección y el color del sol a `luz`. Teclas **D** (nueva), **O/P** (ahora la hora) y **H**. La hora va en el título de la ventana. |
+| `Iluminacion.h/.cpp` | Se borró `sol_con_elevacion()`, la de O/P en la Parte 2. El 0,9 de `sol_color` queda como el color del sol de **mediodía**. |
+| `fondo.fs` | `con_halo_sol(cielo, d)`: el disco ahora **tapa** al cielo con el **tono** del sol, para que al atardecer no se recorte a blanco. El resplandor se sigue sumando. |
+
+#### La hora es un ángulo
+
+La posición del sol es la **hora**, guardada como el ángulo que giró el sol desde que salió. Un giro son 24 h: 15° por hora, y los 5° de O/P son 20 minutos.
+
+| Ángulo | Hora | Dónde está el sol |
+|---|---|---|
+| 0° | 06:00 | sale, en el horizonte, del lado **opuesto** al sol pintado |
+| 90° | 12:00 | en el cenit |
+| 150,2° | 16:00 | en el sol pintado (29,8°): la hora de arranque y la de `H` |
+| 180° | 18:00 | se pone, en el horizonte, del lado del pintado |
+| 270° | 00:00 | debajo, en el nadir |
+
+#### El recorrido (decisión 26)
+
+- **El eje** es horizontal y perpendicular al plano vertical del sol pintado, el mismo plano que recorrían O/P en la Parte 2: `eje = salida × Z`, donde `salida` es el horizonte del lado opuesto al pintado.
+- **El giro** es el de la guía: la dirección de la salida, girada `a` grados alrededor del eje (`glm::rotate`, fórmula de Rodrigues). Con la regla de la mano derecha, `eje × salida = Z`, así que a los 90° el sol llega al cenit. Equivale a `−cos(a)·hacia_pintado + sen(a)·Z`.
+- **Pasa por el pintado:** del lado del pintado, una elevación `e` se alcanza a `180° − e`. Con 29,8°: 150,2°, las 16:00.
+- **El test** verifica las cinco filas de la tabla y que, a cualquier hora, la dirección es unitaria y perpendicular al eje.
+
+#### El color del sol (decisión 27)
+
+La luz del sol atraviesa el aire y se atenúa con la **misma ley que la niebla** de la Parte 4: lo que pasa cae exponencialmente con lo que se atraviesa (Beer-Lambert). La diferencia es que la niebla trata igual a los tres canales y el aire no:
+
+- **τ por canal.** Las moléculas del aire son mucho más chicas que la longitud de onda de la luz y la desvían como `1/λ⁴` (dispersión de **Rayleigh**): el azul se desvía ~5 veces más que el rojo. La luz azul desviada pinta el cielo; la que sigue derecho, la del sol, queda más roja cuanto más aire cruza. Valores para 680, 550 y 450 nm: τ = (0,041; 0,097; 0,221).
+- **El camino: la masa de aire.** Es cuánto aire cruza la luz, relativo al del cenit. Se calcula como un rayo que sale del suelo y cruza una capa de aire de H = 8 km sobre una Tierra de R = 6371 km (una intersección rayo-esfera):
+
+  ```
+  masa = √(k²·sen²e + 2k + 1) − k·sen e,      k = R/H
+  ```
+
+  Vale 1 en el cenit y ~40 en el horizonte. Con una Tierra plana sería `1/sen e`, que en el horizonte se va a infinito.
+- **Relativo al mediodía:** `color = 0,9 · e^(−τ·(masa − 1))`. Al mediodía vale justo el 0,9 de la decisión 18; el aire solo lo cambia cuando el sol baja:
+
+| Elevación | Color del sol (lineal) |
+|---|---|
+| 90° (12:00) | 0,90 · 0,90 · 0,90 |
+| 29,8° (16:00, el pintado) | 0,86 · 0,82 · 0,72 |
+| 14,8° (17:00) | 0,80 · 0,68 · 0,48 |
+| 9,8° (17:20) | 0,74 · 0,57 · 0,31 |
+| 4,8° (17:40) | 0,60 · 0,34 · 0,10 |
+| 0° (18:00) | 0,09 · 0,01 · 0 (con el apagado a la mitad) |
+| debajo de −1° | 0 · 0 · 0 |
+
+- **El apagado:** `smoothstep(−1°, +1°, elevación)`. El disco del halo tiene radio 1°: con el centro a +1° toca el horizonte y a −1° se hundió entero. Sin la rampa, la luz de toda la escena saltaría al cruzar 0°.
+- **De noche,** con el color en 0, se apagan juntas la difusa, la especular, el halo y la bruma: todos son proporcionales a `uSolColor`. No hubo que tocar ningún shader para eso.
+- **La consecuencia aceptada:** a las 16:00 el sol ya es apenas amarillo. Comparada con la captura de la misma vista del halo (sol blanco 0,9), la imagen de arranque difiere en promedio 0,1 a 0,5 niveles de 255: casi no se nota.
+
+#### El disco del halo con el tono del sol
+
+El disco se **sumaba** al cielo con brillo 20 × `uSolColor`, y la pantalla lo recortaba: con el sol a 5°, 20 × (0,61 0,35 0,11) = (12 7 2,2) → **blanco**, aunque la luz ya fuera naranja. Ahora el disco **tapa** al cielo de atrás (`mix`) con el **tono** del sol, que es su color dividido por el canal mayor (a 5°: (1 0,58 0,18), naranja). La opacidad es `clamp(disco · 20 · canal mayor, 0, 1)`:
+
+- **de día** pasa de 1 ya en el borde suavizado, así que se ve igual que antes;
+- **al atardecer** el disco es amarillo y después naranja;
+- **cuando el sol se apaga,** deja de tapar y el disco desaparece.
+
+#### El reloj (decisión 25)
+
+- `dia.avanzar(dt)` va **adentro del `if (!ctx.paused)`** del FDM, con el mismo tope de 0,25 s: la pausa congela también el sol, y un cuadro muy lento no lo hace saltar. No hace falta paso fijo: es una cuenta exacta, no una integración.
+- `O`/`P` y `H` funcionan con el reloj andando o detenido, y también con la pausa.
+- **El título** muestra la hora, la elevación y el reloj: `Práctico 09 - Iluminación y niebla  |  16:00, sol a 30°  |  reloj detenido (D)`. Se cambia solo cuando cambia el texto, y como mucho 10 veces por segundo.
+- **Medido:** con la pausa puesta y el reloj en normal, no avanza. Sin la pausa, en ~3,2 s pasó de 16:00 a 16:39 (3°/s). En rápido, ~2 s avanzaron 1 h 43 min (12°/s). Detenido, quedó quieto.
+
+#### Verificación
+
+**1. El atardecer, mirando hacia el sol** (degradé, `K`, que no tiene el sol pintado), con `P` de a 20 minutos:
+
+![El atardecer sobre el degradé](docs-p09/img/22-dianoche-atardecer.jpg)
+
+- El disco pasa de **blanco** (16:00) a **amarillo** (17:00), más cálido (17:20) y **naranja** (17:40). El resplandor se debilita con él.
+- A las **18:00** (sol a −0,2°) el disco ya no se ve: el horizonte geométrico (0°) queda **detrás de las lomas** del terreno, que asoman por encima. El sol se pone detrás de las lomas.
+- El terreno de este lado se ve a contraluz: cada vez más oscuro y más tapado por la bruma.
+- Con el cubemap pasa lo mismo, y además está el sol pintado quieto, arriba a la izquierda: dos soles fuera de las 16:00, como con O/P en el halo.
+
+**2. De espaldas al sol**, donde el terreno y el avión reciben la luz de frente:
+
+![El terreno y el avión de espaldas al sol](docs-p09/img/23-dianoche-terreno-avion.jpg)
+
+- **El terreno** (promedio de la franja de abajo, en sRGB): 12:00 (109, 142, 68) → 16:00 (90, 114, 65) → 17:40 (68, 77, 62) → 18:20 (61, 71, 62). Con el sol bajo llega menos luz y más amarilla: el verde se apaga y queda oliva. Desde las 18:00 es solo luz ambiente: el relieve desaparece.
+- **El avión** (ampliado): a las 17:20 y 17:40 la chapa queda **naranja** del lado del sol. A las 18:20 queda oscuro, con la luz ambiente sola: **no se ilumina desde abajo** a través del terreno, que es lo que pide la guía.
+
+**3. Además:**
+- `tests/main_test_dia_noche.cpp`: 36 de 36. Los tests anteriores siguen pasando y `make clean && make` compila sin advertencias.
+- La consola, al arrancar y con las teclas:
+
+```
+dia/noche: el sol gira alrededor de un eje horizontal (sale 06:00, mediodia 12:00, se pone 18:00) y pasa por el pintado a las 16:00; color segun el aire que cruza, apagado de noche; reloj detenido (D)
+[O/P] 17:40, sol a 4.8 grados
+[O/P] 18:00, sol a -0.2 grados (apagandose: el disco cruza el horizonte)
+[O/P] 18:20, sol a -5.2 grados (de noche: apagado)
+[D] reloj: NORMAL (un dia en 2 min); 16:00, sol a 29.8 grados (con la PAUSA puesta no avanza)
+```
+
+**Lo que falta en este paso (es el paso 2):** de noche, el cielo y la niebla siguen siendo los del día, y la luz ambiente no cambia.
+
+---
+
+## Cómo probarlo (día/noche, paso 1)
+
+```bash
+make clean && make && ./bin/ogl-app
+```
+
+(`make clean` hace falta porque cambió `Iluminacion.h` y hay un archivo nuevo, `DiaNoche.cpp`.)
+
+1. **Al arrancar,** la consola muestra la línea `dia/noche: ...` y el título de la ventana dice `16:00, sol a 30°  |  reloj detenido (D)`. La escena es la de siempre.
+2. **El atardecer a mano:** pausar (`ESPACIO`), apretar **K** (degradé) y girar la cámara (botón izquierdo) hasta ver el disco del sol. Apretar **P** de a una: el sol baja, se vuelve amarillo y después naranja, y a las 18:00 se esconde detrás de las lomas. **O** lo vuelve a subir.
+3. **El terreno y el avión:** con el sol a las 17:40, girar la cámara de espaldas al sol. El terreno se ve oliva y la chapa del avión, naranja. Con **P** dos veces más (18:20), todo queda con la luz ambiente sola, sin luz desde abajo.
+4. **El reloj:** **H** vuelve a las 16:00. **D** lo pone en marcha (normal, un día en 2 min): sin la pausa, el atardecer llega en unos 10 s. **D** de nuevo, rápido (un día en 30 s); otra vez, detenido. La pausa (`ESPACIO`) también lo frena.
+5. **El test:**
+
+```bash
+g++ -std=c++17 -Wall -Wextra -I./src src/core/DiaNoche.cpp tests/main_test_dia_noche.cpp -o build/test_dia_noche && ./build/test_dia_noche
+```
+
+---
+
+## Lo que sigue
+
+1. **Día/noche, paso 2 — la noche** (decisión 28): el factor del cielo (cielo, niebla y ambiente) y la luna.
+2. **Paso 3 — el crepúsculo** (decisión 29): el degradé naranja rosado del horizonte.
+3. **Paso 4 — las estrellas** (decisión 30).
+4. **Curvatura de la Tierra:** el horizonte que baja al subir.

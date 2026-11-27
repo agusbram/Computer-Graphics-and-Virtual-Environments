@@ -4,12 +4,9 @@
 
 #include "core/Iluminacion.h"   // la declaración que se implementa acá
 
-#include <cmath>                // std::atan2, std::cos, std::sin: la dirección del sol (O/P)
 #include <iostream>             // std::cout: el informe de qué uniforms usa cada programa
 #include <iterator>             // std::size: cuántos uniforms hay en la lista del informe
 #include <utility>              // std::pair: (nombre del uniform, ubicación) para el informe
-
-#include <glm/trigonometric.hpp>   // glm::radians: grados -> radianes
 
 UniformsIluminacion buscar_uniforms_iluminacion(const Shader& programa,
                                                 const std::string& nombre)
@@ -70,18 +67,4 @@ void enviar_iluminacion(const Shader& programa, const UniformsIluminacion& u,
     programa.set_uniform(u.blinn_phong, luz.blinn_phong);
     programa.set_uniform(u.gamma, luz.gamma);             // P09, Parte 5
     programa.set_uniform(u.halo, luz.halo);               // P09, opcional (halo del sol)
-}
-
-glm::vec3 sol_con_elevacion(const glm::vec3& base, float elevacion_grados)
-{
-    // Acimut de la dirección base: el ángulo de su sombra sobre el plano
-    // horizontal X-Y (atan2 da el ángulo correcto en los cuatro cuadrantes).
-    const float acimut = std::atan2(base.y, base.x);
-    const float e      = glm::radians(elevacion_grados);
-    // Coordenadas esféricas con Z arriba: la parte horizontal mide cos(e) y se
-    // reparte entre x e y según el acimut; la vertical es sin(e). El vector
-    // queda unitario (cos²e·(cos²a + sin²a) + sin²e = 1).
-    return glm::vec3(std::cos(e) * std::cos(acimut),
-                     std::cos(e) * std::sin(acimut),
-                     std::sin(e));
 }

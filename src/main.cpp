@@ -1,6 +1,18 @@
 // -----------------------------------------------------------------------------
 // main.cpp — la aplicación (Prácticos 04 a 09)
 //
+// Lo nuevo del Práctico 09, opcional — el CICLO DÍA/NOCHE (paso 1 de 4: el sol
+// que se mueve; módulo DiaNoche, decisiones 25 a 31):
+//   1. La HORA es un ángulo (0° sale, 90° mediodía, 180° se pone): el sol gira
+//      alrededor de un eje HORIZONTAL, por un recorrido que pasa por el sol
+//      pintado del cubemap (a las 16:00, la hora con la que arranca).
+//   2. El COLOR del sol cambia con su altura (el aire atenúa más el azul): más
+//      cálido y más débil cerca del horizonte, y APAGADO debajo de él.
+//   3. Teclas: D = reloj (detenido / normal: un día en 2 min / rápido: 30 s),
+//      O/P = atrasar/adelantar la hora 20 min (en la Parte 2 bajaban/subían el
+//      sol), H = la hora del sol pintado. La hora se ve en el título.
+//   (Siguen: la noche, el tinte del crepúsculo y las estrellas.)
+//
 // Lo nuevo del Práctico 09, opcional — el HALO DEL SOL:
 //   1. En el cielo, un disco de 2° (el sol real mide 0,53°) y un resplandor
 //      alrededor de la dirección de la LUZ (fondo.fs). Sigue a la luz con O/P;
@@ -47,7 +59,8 @@
 //   1. La malla del terreno y el suelo continuado se iluminan con el modelo de
 //      Phong (iluminar_suelo, código común): kd = la textura, ks = 0.
 //   2. El sol: por omisión, el sol PINTADO en el cubemap; O/P lo bajan/suben
-//      (misma orientación, otra elevación) y H lo vuelve al pintado.
+//      (misma orientación, otra elevación) y H lo vuelve al pintado. (Desde el
+//      ciclo día/noche, O/P mueven la HORA y H vuelve a la hora del pintado.)
 //   3. Tecla B (verificación de la guía): con luz / sin luz / normal constante.
 //   4. Las normales del terreno se corrigieron (Terrain.cpp y terreno.vs):
 //      diferencias centrales también en el borde, y geomorphing de la normal.
@@ -101,13 +114,14 @@
 // IMPORTANTE: este main.cpp NO posee recursos de OpenGL (no hay glDelete*).
 // -----------------------------------------------------------------------------
 
-#include <algorithm>        // std::min, std::max, std::clamp (elevación del sol, P09)
+#include <algorithm>        // std::min, std::max (tope del acumulador, altura extra)
 #include <array>            // std::array (las 6 caras del cubemap)
 #include <cmath>            // std::atan, std::floor, std::round, std::exp (niebla, P09), std::pow (gamma, P09)
 #include <cstdlib>          // EXIT_FAILURE, EXIT_SUCCESS
 #include <exception>        // std::exception
 #include <iostream>         // std::cout, std::endl, std::cerr
 #include <set>              // std::set (para contar mallas distintas)
+#include <sstream>          // std::ostringstream: la hora y la altura del sol en una línea (día/noche, P09)
 #include <stdexcept>        // std::runtime_error: un programa de shaders que no compila (P09)
 #include <string>           // std::string
 #include <utility>          // std::pair
@@ -125,6 +139,7 @@
 
 #include "core/Aircraft.h"                     // Aircraft: el avión armado con primitivas
 #include "core/CameraSystem.h"                 // CameraSystem: la cámara que sigue al avión
+#include "core/DiaNoche.h"                     // DiaNoche: el reloj del día y el sol que gira (P09, opcional)
 #include "core/FlightData.h"                   // FlightData y to_world: pasar el estado del FDM a la escena
 #include "core/Iluminacion.h"                  // Iluminacion: sol y niebla de la escena, un solo lugar (P09)
 #include "core/InputHandler.h"                 // InputHandler: teclado (mandos) y mouse (cámara)
@@ -163,13 +178,13 @@ static constexpr float kTamTesela = 5.0f;
 // (para medir la "banda" del problema de la altitud sin tener que pilotear).
 static constexpr float kPasoAltura = 10.0f;   // u (= 100 m) por pulsación
 
-// Práctico 09 (Parte 2): cuánto sube/baja el sol con O/P, y hasta dónde. Entre
-// 0° (rasante, en el horizonte) y 90° (cenit, mediodía en el ecuador). Debajo
-// del horizonte no se lo deja bajar: Phong no tiene sombras y el sol
-// iluminaría desde abajo (eso es tema del ciclo día/noche opcional).
-static constexpr float kPasoSol      = 5.0f;    // grados por pulsación
-static constexpr float kSolElevMin   = 0.0f;    // grados
-static constexpr float kSolElevMax   = 90.0f;   // grados
+// Práctico 09: cuánto mueven el sol las teclas O/P. En la Parte 2 movían la
+// ELEVACIÓN de a 5°, entre 0° (horizonte) y 90° (cenit), y no lo dejaban bajar
+// del horizonte: Phong no tiene sombras y el sol iluminaría desde abajo. Desde
+// el ciclo día/noche (opcional) mueven la HORA: 5° del recorrido = 20 minutos,
+// sin topes (después de las 23:40 vienen las 0:00). Ya puede pasar debajo del
+// horizonte porque de noche se APAGA (DiaNoche::color_sol).
+static constexpr float kPasoSol = 5.0f;   // grados del recorrido por pulsación (= 20 min)
 
 // Variables globales para guardar el último error reportado por GLFW
 static int glfw_error_code{};
@@ -196,8 +211,10 @@ struct AppContext {
     float altura_extra = 0.0f;      // RePág/AvPág: u que se BAJA el terreno (= sube el avión)
     // --- Práctico 09 ---
     int   modo_suelo = 0;           // B: 0 con luz, 1 sin luz (como el P08), 2 normal constante
-    float sol_elevacion = 30.0f;    // O/P: elevación del sol, en grados sobre el horizonte
-    float sol_elevacion_pintado = 30.0f;   // H: la del sol pintado en el cubemap (la calcula el Skybox)
+    // D, O/P, H: el reloj del día (opcional día/noche). Es un puntero, como la
+    // cámara: el objeto vive en main. (En la Parte 2, O/P/H cambiaban una
+    // elevación guardada acá.)
+    DiaNoche* dia = nullptr;
     bool  ver_normales  = false;    // V: el avión pinta su normal como color (Parte 3)
     bool  matriz_normal = true;     // X: true = matriz normal G (lo correcto); false = M (el error)
     bool  blinn_phong   = false;    // R: false = Phong (R·V), true = Blinn-Phong (N·H, ns x 4)
@@ -206,6 +223,22 @@ struct AppContext {
     int   modo_halo     = 0;        // Y: 0 completo (halo + bruma hacia el sol), 1 solo el halo
                                     //    del cielo, 2 sin halo (opcional "halo del sol")
 };
+
+// P09 (día/noche): la hora y la altura del sol en una línea, para la consola
+// (teclas D, O/P y H). Por ejemplo: "15:40, sol a 24.8 grados".
+static std::string describir_sol(const DiaNoche& dia)
+{
+    // round(x·10)/10: se muestra con un decimal, 24.8 y no 24.8047.
+    const float e = std::round(dia.elevacion_sol() * 10.0f) / 10.0f;
+    std::ostringstream texto;
+    texto << hora_texto(dia.hora()) << ", sol a " << e << " grados";
+    if (e <= -1.0f) {
+        texto << " (de noche: apagado)";
+    } else if (e < 1.0f) {
+        texto << " (apagandose: el disco cruza el horizonte)";
+    }
+    return texto.str();
+}
 
 // Práctico 08: ubicaciones de los uniforms "por pieza" de un programa. Se buscan
 // UNA vez (con Shader::loc) y se usan en cada draw call. Las que un programa no
@@ -556,6 +589,12 @@ int main()
             Skybox fondo;
             fondo.init(src_fondo, caras);
 
+            // 3b) P09, opcional: el RELOJ DEL DÍA (decisiones 25 a 31). El
+            //     recorrido del sol se arma con la dirección del sol PINTADO que
+            //     acaba de medir el fondo: pasa por él a las 16:00, y a esa hora
+            //     arranca, con el reloj detenido (la tecla D lo pone en marcha).
+            DiaNoche dia(fondo.direccion_sol());
+
             std::cout << "texturas : pasto " << tex_pasto.ancho() << "x" << tex_pasto.alto()
                       << " (" << tex_pasto.niveles() << " niveles de mipmap), tesela "
                       << kTamTesela * kMetrosPorUnidad << " m; prueba "
@@ -587,6 +626,11 @@ int main()
                 // P09 (opcional): el halo del sol.
                 std::cout << "halo     : disco de 2 grados + resplandor en la direccion de la luz; "
                           << "bruma mas clara hacia el sol; Y cambia el modo" << std::endl;
+                // P09 (opcional): el ciclo día/noche (paso 1: el sol que se mueve).
+                std::cout << "dia/noche: el sol gira alrededor de un eje horizontal (sale 06:00, "
+                          << "mediodia 12:00, se pone 18:00) y pasa por el pintado a las "
+                          << hora_texto(dia.hora_pintado()) << "; color segun el aire que cruza, "
+                          << "apagado de noche; reloj detenido (D)" << std::endl;
             }
 
             // --- Luz y niebla de la escena (Práctico 09, Partes 1 a 5) ------
@@ -600,7 +644,10 @@ int main()
             // Lo que cambia con TECLAS NO se carga acá: se asigna en el bucle,
             // en cada cuadro, antes de enviar `luz` (un solo lugar que lo
             // escribe; el primer cuadro ya pasa por ahí):
-            //   sol_dir      -> teclas O/P/H (por omisión, el sol PINTADO);
+            //   sol_dir,     -> el reloj del día (DiaNoche; teclas D, O/P y H;
+            //   sol_color       arranca en el sol PINTADO). El color es el de
+            //                   mediodía (sol_mediodia, abajo) atenuado por el
+            //                   aire, y apagado de noche (opcional día/noche);
             //   modo_suelo   -> tecla B;
             //   niebla_color -> teclas K (cielo activo) y J (gris); en lineal
             //                   si la gamma está activa (Parte 5);
@@ -610,6 +657,11 @@ int main()
             // (Por eso no hay asignaciones acá: todos los campos de `luz` que
             // no son los valores por omisión dependen de alguna tecla.)
             Iluminacion luz;
+            // P09 (día/noche): el color del sol al MEDIODÍA es el valor por
+            // omisión de Iluminacion (0,9, decisión 18): queda definido en un
+            // solo lugar. En cada cuadro, DiaNoche lo atenúa según la altura
+            // del sol y el resultado va a luz.sol_color.
+            const glm::vec3 sol_mediodia = luz.sol_color;
 
             // 4) Decisión 1: la GPU ya tiene su copia -> se libera la de la CPU
             //    (el cubemap solo son ~19 MB en RGBA). Las referencias img_* y
@@ -634,7 +686,8 @@ int main()
                       << "G=suelo continuado, 1=solo nivel fino, "
                       << "RePag/AvPag=altura sobre el terreno" << std::endl;
             std::cout << "teclas P09: B=luz del suelo (con luz/sin luz/normal constante), "
-                      << "O/P=bajar/subir el sol, H=sol pintado del cubemap, "
+                      << "D=reloj del dia (detenido / normal: 2 min / rapido: 30 s), "
+                      << "O/P=atrasar/adelantar la hora 20 min, H=hora del sol pintado, "
                       << "V=normales del avion como color, X=matriz normal / M, "
                       << "R=Phong / Blinn-Phong, "
                       << "J=niebla (horizonte / gris / cielo sin niebla), "
@@ -653,8 +706,8 @@ int main()
             // Contexto para las callbacks (cámara + toggles discretos).
             // ctx es el "tablero de interruptores" del programa: guarda el
             // estado de cada tecla de depuración (pausa, F, L, M, N, U, T, I,
-            // K, G, 1, RePág/AvPág; P09: B, O/P, H, V, X, R, J) y un puntero a
-            // la cámara.
+            // K, G, 1, RePág/AvPág; P09: B, V, X, R, J, C, Y) y punteros a la
+            // cámara y al reloj del día (D, O/P, H).
             // El problema que resuelve: GLFW llama a key_callback y a
             // framebuffer_size_callback con SOLO la ventana y la tecla; son
             // funciones libres y no ven las variables de main. La solución de
@@ -669,10 +722,10 @@ int main()
             // Vive en main (pila): existe mientras la ventana existe.
             AppContext ctx;
             ctx.camara = &camara;
-            // P09: el sol arranca en el PINTADO del cubemap (la luz viene de
-            // donde se lo ve). H vuelve a este valor.
-            ctx.sol_elevacion_pintado = fondo.elevacion_sol_grados();
-            ctx.sol_elevacion         = ctx.sol_elevacion_pintado;
+            // P09 (día/noche): las teclas D, O/P y H cambian el reloj y la
+            // hora. El sol arranca en el PINTADO del cubemap (la luz viene de
+            // donde se lo ve), y H vuelve a esa hora.
+            ctx.dia = &dia;
             glfwSetWindowUserPointer(window, &ctx);
             glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
             glfwSetKeyCallback(window, key_callback);
@@ -725,6 +778,33 @@ int main()
                         // nunca frame_dt: el paso del FDM es fijo.
                         fdm.update(input.controls());
                         acc -= kFdmDt;
+                    }
+                    // P09 (día/noche, decisión 25): el RELOJ DEL DÍA avanza con
+                    // el tiempo de la SIMULACIÓN, por eso va adentro de este if
+                    // (la pausa también lo frena). Con el mismo tope de 0,25 s:
+                    // un cuadro muy lento no hace saltar el sol. No necesita
+                    // paso fijo (es una cuenta exacta, no una integración).
+                    // Con el reloj detenido (tecla D) no se mueve.
+                    dia.avanzar(static_cast<float>(std::min(frame_dt, 0.25)));
+                }
+
+                // P09 (día/noche): la HORA en el título de la ventana, como un
+                // reloj de pared: se lee sin mirar la consola. Se cambia solo
+                // cuando cambia el texto y no más de 10 veces por segundo (con
+                // el reloj rápido los minutos cambian en todos los cuadros).
+                {
+                    static std::string titulo_actual;   // el que tiene la ventana ahora
+                    static double ult_titulo = -1.0;    // instante del último cambio
+                    const char* relojes[3] = {"reloj detenido (D)", "reloj normal: un día en 2 min",
+                                              "reloj rápido: un día en 30 s"};
+                    const std::string titulo =
+                        std::string(kWindowTitle) + "  |  " + hora_texto(dia.hora()) + ", sol a "
+                        + std::to_string(static_cast<int>(std::lround(dia.elevacion_sol()))) + "°  |  "
+                        + relojes[static_cast<int>(dia.reloj())];
+                    if (titulo != titulo_actual && ahora - ult_titulo >= 0.1) {
+                        glfwSetWindowTitle(window, titulo.c_str());   // UTF-8 (por eso puede ir "°")
+                        titulo_actual = titulo;
+                        ult_titulo    = ahora;
                     }
                 }
 
@@ -884,14 +964,20 @@ int main()
                 // ningún shader (y sin a_srgb).
                 const glm::vec3 color_niebla = niebla_srgb;
 
-                // P09 (Parte 2): el SOL. Misma orientación horizontal (acimut)
-                // que el sol pintado del cubemap, a la elevación elegida con
-                // O/P (H la vuelve a la del pintado). Mientras la elevación sea
-                // la del pintado, la dirección es la del sol que se ve en el
-                // cielo; si se la cambia, el sol PINTADO no se mueve (es una
-                // imagen): la luz deja de coincidir con él, a propósito, para
-                // comparar un sol alto con uno bajo.
-                luz.sol_dir    = sol_con_elevacion(fondo.direccion_sol(), ctx.sol_elevacion);
+                // P09: el SOL. Desde el ciclo día/noche (opcional) lo da el
+                // RELOJ DEL DÍA:
+                //   - la dirección gira alrededor del eje horizontal según la
+                //     hora (decisión 26);
+                //   - el color es el de mediodía atenuado por el aire: más
+                //     cálido y más débil cerca del horizonte, y apagado debajo
+                //     de él, porque Phong no tiene sombras (decisión 27).
+                // A las 16:00 (la hora de arranque y la de H) la luz viene del
+                // sol PINTADO, como pide la Parte 2. A otras horas el pintado
+                // no se mueve (es parte de la imagen) y hay dos soles.
+                // (En la Parte 2 la dirección salía de sol_con_elevacion(): el
+                // acimut del pintado y la elevación de O/P, entre 0° y 90°.)
+                luz.sol_dir    = dia.direccion_sol();
+                luz.sol_color  = dia.color_sol(sol_mediodia);
                 luz.modo_suelo = ctx.modo_suelo;   // B: verificación de la luz del suelo
                 luz.blinn_phong = ctx.blinn_phong ? 1 : 0;   // R: modelo del brillo (P09, Parte 3)
                 luz.halo        = ctx.modo_halo;             // Y: halo del sol (P09, opcional)
@@ -1027,16 +1113,15 @@ void key_callback(GLFWwindow* window, int key, [[maybe_unused]] int scancode,
         if (key == GLFW_KEY_PAGE_DOWN) {
             ctx->altura_extra = std::max(0.0f, ctx->altura_extra - kPasoAltura);
         }
-        // Práctico 09 (Parte 2): O/P bajan/suben el sol (también con REPEAT:
-        // manteniendo la tecla, el sol se mueve de a kPasoSol grados).
-        if (key == GLFW_KEY_O || key == GLFW_KEY_P) {
-            const float paso = (key == GLFW_KEY_P) ? kPasoSol : -kPasoSol;
-            ctx->sol_elevacion = std::clamp(ctx->sol_elevacion + paso, kSolElevMin, kSolElevMax);
-            // (round(x·10)/10: se muestra con un decimal, 24.8 y no 24.8047)
-            std::cout << "[O/P] sol a " << std::round(ctx->sol_elevacion * 10.0f) / 10.0f
-                      << " grados de elevacion (el pintado del cubemap esta a "
-                      << std::round(ctx->sol_elevacion_pintado * 10.0f) / 10.0f
-                      << "; H vuelve a el)" << std::endl;
+        // Práctico 09: O/P atrasan/adelantan la HORA de a 20 min (kPasoSol =
+        // 5° del recorrido), también con REPEAT (manteniendo la tecla, el sol
+        // sigue moviéndose). En la Parte 2 bajaban/subían la elevación entre 0°
+        // y 90°; desde el día/noche no hay topes: el sol da la vuelta entera y
+        // de noche se apaga. Ojo: P ADELANTA la hora, así que a la tarde el sol
+        // BAJA (y a la mañana, sube). Funcionan también con el reloj andando.
+        if ((key == GLFW_KEY_O || key == GLFW_KEY_P) && ctx->dia != nullptr) {
+            ctx->dia->mover((key == GLFW_KEY_P) ? kPasoSol : -kPasoSol);
+            std::cout << "[O/P] " << describir_sol(*ctx->dia) << std::endl;
         }
     }
     if (action != GLFW_PRESS) {
@@ -1100,11 +1185,24 @@ void key_callback(GLFWwindow* window, int key, [[maybe_unused]] int scancode,
                                 "con luz y NORMAL CONSTANTE (0, 0, 1): el relieve desaparece"};
         std::cout << "[B] suelo: " << modos[ctx->modo_suelo] << std::endl;
     }
-    if (key == GLFW_KEY_H) {
-        ctx->sol_elevacion = ctx->sol_elevacion_pintado;
-        std::cout << "[H] sol: el pintado del cubemap ("
-                  << std::round(ctx->sol_elevacion * 10.0f) / 10.0f
-                  << " grados de elevacion)" << std::endl;
+    // H: la hora del sol PINTADO (16:00): la luz vuelve a venir de donde se lo
+    // ve en el cubemap (lo que pide la Parte 2). No cambia la velocidad del
+    // reloj: si está andando, sigue desde ahí.
+    if (key == GLFW_KEY_H && ctx->dia != nullptr) {
+        ctx->dia->volver_al_pintado();
+        std::cout << "[H] la hora del sol pintado: " << describir_sol(*ctx->dia) << std::endl;
+    }
+
+    // --- Práctico 09, opcional: el reloj del CICLO DÍA/NOCHE (decisión 25) ---
+    // D recorre las velocidades: detenido -> normal (un día en 2 min) ->
+    // rápido (un día en 30 s) -> detenido. La pausa (Espacio) también lo frena,
+    // porque avanza con el tiempo de la simulación.
+    if (key == GLFW_KEY_D && ctx->dia != nullptr) {
+        const DiaNoche::Reloj r = ctx->dia->cambiar_reloj();
+        const char* nombres[3] = {"DETENIDO", "NORMAL (un dia en 2 min)", "RAPIDO (un dia en 30 s)"};
+        std::cout << "[D] reloj: " << nombres[static_cast<int>(r)] << "; "
+                  << describir_sol(*ctx->dia) << (ctx->paused ? " (con la PAUSA puesta no avanza)" : "")
+                  << std::endl;
     }
 
     // --- Práctico 09 (Parte 3): verificación de la luz del avión --------------

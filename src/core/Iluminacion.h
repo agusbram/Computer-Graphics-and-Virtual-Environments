@@ -58,6 +58,10 @@ struct Iluminacion {
     // color de la textura (0,3^(1/2,2)) y el relieve se aplana. Con 0,1 queda
     // al 35 % (0,1^(1/2,2)), casi como el 30 % que se veía sin corrección.
     // Son PROPORCIONES de luz (lineales): no se convierten con a_lineal.
+    // Desde el ciclo día/noche (opcional), main reemplaza sol_dir y sol_color
+    // en cada cuadro con lo que calcula el reloj del día (DiaNoche): el 0,9 de
+    // acá queda como el color del sol al MEDIODÍA, y el aire lo atenúa cuando
+    // el sol baja.
     glm::vec3 sol_color {0.9f};             // color e intensidad del sol (lineal: proporción de la luz)
     glm::vec3 ambiente {0.1f};              // luz ambiente (0,1 + 0,9 = 1: sin zonas quemadas)
 
@@ -127,9 +131,7 @@ UniformsIluminacion buscar_uniforms_iluminacion(const Shader& programa,
 void enviar_iluminacion(const Shader& programa, const UniformsIluminacion& u,
                         const Iluminacion& luz, const glm::vec3& ojo);
 
-// Práctico 09 (Parte 2), teclas O/P: la dirección HACIA el sol con la MISMA
-// orientación horizontal (acimut) que `base` pero a otra ELEVACIÓN (grados
-// sobre el horizonte). Escena Z-ARRIBA: la elevación es el ángulo con el plano
-// X-Y y el acimut, el ángulo en ese plano. Se usa para subir y bajar el sol
-// sin que cambie el lado del que viene (el del sol pintado del cubemap).
-glm::vec3 sol_con_elevacion(const glm::vec3& base, float elevacion_grados);
+// (Hasta el halo del sol acá estaba sol_con_elevacion(), de las teclas O/P de
+// la Parte 2: la dirección con el acimut del sol pintado y otra elevación,
+// entre 0° y 90°. Desde el ciclo día/noche, la dirección y el color del sol los
+// calcula el reloj del día: ver DiaNoche.h.)

@@ -71,6 +71,7 @@ un `main.cpp` gigante.
 | `FDM` | sistemas | física de vuelo | — |
 | `InputHandler` | sistemas | teclado / joystick | — |
 | `CameraSystem` | sistemas | 3 vistas, matrices | — |
+| `DiaNoche` (P09) | sistemas | reloj del día: la hora, la dirección y el color del sol | dibujar, OpenGL |
 | `HUD` | sistemas | instrumentos, overlay 2D | — |
 | `GameLogic` | sistemas | checkpoints, maniobras | — |
 
@@ -144,8 +145,9 @@ La arquitectura es el **destino**; el código actual ya da pasos hacia ella:
 - **Iluminación y niebla** (Práctico 09): código GLSL común ✔,
   terreno iluminado (Phong) ✔, avión iluminado (material en el `RenderItem`,
   matriz normal calculada al dibujar) ✔, niebla exponencial (terreno, avión y
-  cielo) ✔, corrección gamma en el código común ✔, opcional halo del sol ✔;
-  siguen día/noche y curvatura.
+  cielo) ✔, corrección gamma en el código común ✔, opcional halo del sol ✔,
+  opcional día/noche: paso 1 ✔ (el sistema `DiaNoche`, sin dependencias: solo
+  glm); siguen los pasos 2 a 4 y la curvatura.
   Ver `Practico09-Decisiones.md`.
 - **HUD**: el módulo `HUD`.
 - **Circuito / maniobras**: `CircuitState` + `GameLogic`.
@@ -206,6 +208,7 @@ Sistemas (ninguno incluye a otro sistema):
   CameraSystem → CameraData, CameraCommand
   InputHandler → CameraCommand
   Skybox       → Iluminacion, Mesh, ResourceManager, Shader, Texture
+  DiaNoche     → (nada del proyecto: solo glm)     ← agregado el 26-nov (día/noche)
 
 Aplicación:
   main.cpp → todos                  ← y además DIBUJA (punto 1)
